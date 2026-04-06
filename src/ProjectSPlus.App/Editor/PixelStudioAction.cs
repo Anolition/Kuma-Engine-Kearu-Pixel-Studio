@@ -1,0 +1,37 @@
+namespace ProjectSPlus.App.Editor;
+
+public enum PixelStudioAction
+{
+    NewBlankDocument,
+    LoadDemoDocument,
+    ImportImage,
+    ResizeCanvas16,
+    ResizeCanvas32,
+    ResizeCanvas64,
+    ResizeCanvas128,
+    ZoomOut,
+    ZoomIn,
+    ToggleGrid,
+    TogglePaletteLibrary,
+    AddPaletteSwatch,
+    SaveCurrentPalette,
+    GeneratePaletteFromImage,
+    RenameSelectedPalette,
+    DeleteSelectedPalette,
+    PalettePromptGenerate,
+    PalettePromptDismiss,
+    PalettePromptDismissForever,
+    DecreaseRed,
+    IncreaseRed,
+    DecreaseGreen,
+    IncreaseGreen,
+    DecreaseBlue,
+    IncreaseBlue,
+    AddLayer,
+    DeleteLayer,
+    AddFrame,
+    DeleteFrame,
+    TogglePlayback,
+    DecreaseFrameRate,
+    IncreaseFrameRate
+}
