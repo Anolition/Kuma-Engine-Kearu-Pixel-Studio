@@ -61,9 +61,9 @@ public static class EditorTypographyCatalog
 
     private static ThemeColor GetReadableTextColor(EditorTheme theme)
     {
-        bool darkBackground = string.Equals(theme.Name, EditorThemeCatalog.DarkThemeName, StringComparison.OrdinalIgnoreCase);
-        return darkBackground
-            ? new ThemeColor(1.0f, 1.0f, 1.0f)
-            : new ThemeColor(0.0f, 0.0f, 0.0f);
+        bool lightBackground = string.Equals(theme.Name, EditorThemeCatalog.LightThemeName, StringComparison.OrdinalIgnoreCase);
+        return lightBackground
+            ? new ThemeColor(0.0f, 0.0f, 0.0f)
+            : new ThemeColor(1.0f, 1.0f, 1.0f);
     }
 }

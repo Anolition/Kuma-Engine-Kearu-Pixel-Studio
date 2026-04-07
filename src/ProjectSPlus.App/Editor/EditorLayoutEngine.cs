@@ -5,11 +5,13 @@ namespace ProjectSPlus.App.Editor;
 
 public static partial class EditorLayoutEngine
 {
-    private const float UiTextLineHeight = 20f;
-    private const float UiHeaderHeight = 32f;
-    private const float UiButtonHeight = 34f;
-    private const float UiCompactButtonHeight = 30f;
-    private const float PixelPanelHeaderHeight = UiHeaderHeight;
+    private static readonly float UiBodyTextHeight = MeasureTextHeight(16f);
+    private static readonly float UiStatusTextHeight = MeasureTextHeight(15f);
+    private static readonly float UiTitleTextHeight = MeasureTextHeight(17f);
+    private static readonly float UiHeaderHeight = EnsureTextContainerHeight(UiTitleTextHeight, 14f, 32f);
+    private static readonly float UiButtonHeight = EnsureTextContainerHeight(UiBodyTextHeight, 14f, 34f);
+    private static readonly float UiCompactButtonHeight = EnsureTextContainerHeight(UiStatusTextHeight, 12f, 30f);
+    private static readonly float PixelPanelHeaderHeight = UiHeaderHeight;
     private const float PixelPanelPadding = 10f;
     private const float PixelPanelGap = 10f;
     private const float CollapsedPanelWidth = 34f;
@@ -374,7 +376,7 @@ public static partial class EditorLayoutEngine
             "File" =>
             [
                 new EditorMenuEntry { Label = "Home", Action = EditorMenuAction.OpenHome },
-                new EditorMenuEntry { Label = "Pixel Studio", Action = EditorMenuAction.OpenPixelStudio },
+                new EditorMenuEntry { Label = EditorBranding.PixelToolName, Action = EditorMenuAction.OpenPixelStudio },
                 new EditorMenuEntry { Label = "Create Project Slot", Action = EditorMenuAction.CreateProjectSlot },
                 new EditorMenuEntry { Label = "Projects", Action = EditorMenuAction.OpenProjects },
                 new EditorMenuEntry { Label = "New Scratch Tab", Action = EditorMenuAction.NewScratchTab }
@@ -389,7 +391,7 @@ public static partial class EditorLayoutEngine
             "View" =>
             [
                 new EditorMenuEntry { Label = "Home", Action = EditorMenuAction.OpenHome },
-                new EditorMenuEntry { Label = "Pixel Studio", Action = EditorMenuAction.OpenPixelStudio },
+                new EditorMenuEntry { Label = EditorBranding.PixelToolName, Action = EditorMenuAction.OpenPixelStudio },
                 new EditorMenuEntry { Label = "Layout", Action = EditorMenuAction.OpenLayout },
                 new EditorMenuEntry { Label = "Preferences", Action = EditorMenuAction.OpenPreferences },
                 new EditorMenuEntry { Label = "Projects", Action = EditorMenuAction.OpenProjects }
@@ -402,7 +404,7 @@ public static partial class EditorLayoutEngine
             ],
             "Tools" =>
             [
-                new EditorMenuEntry { Label = "Pixel Studio", Action = EditorMenuAction.OpenPixelStudio },
+                new EditorMenuEntry { Label = EditorBranding.PixelToolName, Action = EditorMenuAction.OpenPixelStudio },
                 new EditorMenuEntry { Label = "Toggle Theme", Action = EditorMenuAction.ToggleTheme },
                 new EditorMenuEntry { Label = "Cycle Font Size", Action = EditorMenuAction.CycleFontSize },
                 new EditorMenuEntry { Label = "Cycle Font Family", Action = EditorMenuAction.CycleFontFamily },
@@ -526,6 +528,11 @@ public static partial class EditorLayoutEngine
     {
         float measuredWidth = MeasureTextWidth(label, fontSize) + horizontalPadding;
         return Math.Clamp(measuredWidth, minimumWidth, maxWidth);
+    }
+
+    private static float EnsureTextContainerHeight(float textHeight, float verticalPadding, float minimumHeight = 0f)
+    {
+        return MathF.Ceiling(Math.Max(textHeight + verticalPadding, minimumHeight));
     }
 
     private static IReadOnlyList<AdaptivePanelAllocation> AllocateAdaptiveWidths(float totalWidth, IReadOnlyList<AdaptivePanelSpec> specs)
@@ -745,7 +752,7 @@ public static partial class EditorLayoutEngine
         for (int index = 0; index < items.Count; index++)
         {
             UiLayoutItem<T> item = items[index];
-            float resolvedHeight = Math.Max(item.Height, UiCompactButtonHeight);
+            float resolvedHeight = EnsureTextContainerHeight(Math.Max(UiBodyTextHeight, UiStatusTextHeight), 12f, item.Height);
             UiRect rect = new(x, y, widths[index], resolvedHeight);
             placements.Add(new UiLayoutPlacement<T>
             {
@@ -769,7 +776,7 @@ public static partial class EditorLayoutEngine
 
         foreach (UiLayoutItem<T> item in items.Where(entry => entry.Visible))
         {
-            float resolvedHeight = Math.Max(item.Height, UiCompactButtonHeight);
+            float resolvedHeight = EnsureTextContainerHeight(Math.Max(UiBodyTextHeight, UiStatusTextHeight), 12f, item.Height);
             UiRect rect = new(content.X, y, Math.Min(content.Width, item.MaxWidth), resolvedHeight);
             placements.Add(new UiLayoutPlacement<T>
             {
@@ -811,7 +818,7 @@ public static partial class EditorLayoutEngine
             return SnapRect(panelRect);
         }
 
-        float headerHeight = Math.Min(PixelPanelHeaderHeight, panelRect.Height);
+        float headerHeight = Math.Min(Math.Max(PixelPanelHeaderHeight, EnsureTextContainerHeight(UiTitleTextHeight, 14f)), panelRect.Height);
         return SnapRect(new UiRect(panelRect.X, panelRect.Y, panelRect.Width, headerHeight));
     }
 
@@ -914,6 +921,16 @@ public static partial class EditorLayoutEngine
         return TextMeasurer.MeasureBounds(text, new TextOptions(font)).Width;
     }
 
+    private static float MeasureTextHeight(float fontSize)
+    {
+        Font font = ResolveLayoutFont(fontSize);
+        HorizontalMetrics metrics = font.FontMetrics.HorizontalMetrics;
+        float scale = font.Size / MathF.Max(font.FontMetrics.UnitsPerEm, 1f);
+        float ascent = MathF.Ceiling(Math.Max(metrics.Ascender * scale, font.Size * 0.72f));
+        float descent = MathF.Ceiling(Math.Max(MathF.Abs(metrics.Descender * scale), font.Size * 0.24f));
+        return MathF.Ceiling(ascent + descent);
+    }
+
     private static Font ResolveLayoutFont(float size)
     {
         if (SystemFonts.TryGet("Segoe UI", out FontFamily family))
@@ -1012,8 +1029,8 @@ public static partial class EditorLayoutEngine
         UiRect rightSplitterRect = SnapRect(new UiRect(sidebarX - 4, contentTop, 8, Math.Max(timelineRect.Y - contentTop - sectionGap, 0)));
         const float collapseHandleWidth = 12f;
         const float collapseHandleHeight = 38f;
-        UiRect leftCollapseHandleRect = SnapRect(new UiRect(toolbarRect.X + toolbarRect.Width - (collapseHandleWidth * 0.5f), toolbarRect.Y + Math.Max((toolbarRect.Height - collapseHandleHeight) * 0.5f, 12), collapseHandleWidth, collapseHandleHeight));
-        UiRect rightCollapseHandleRect = SnapRect(new UiRect(palettePanelRect.X - (collapseHandleWidth * 0.5f), palettePanelRect.Y + Math.Max((palettePanelRect.Height - collapseHandleHeight) * 0.5f, 12), collapseHandleWidth, collapseHandleHeight));
+        UiRect leftCollapseHandleRect = SnapRect(new UiRect(toolbarRect.X + toolbarRect.Width - collapseHandleWidth, toolbarRect.Y + Math.Max((toolbarRect.Height - collapseHandleHeight) * 0.5f, 12), collapseHandleWidth, collapseHandleHeight));
+        UiRect rightCollapseHandleRect = SnapRect(new UiRect(palettePanelRect.X, palettePanelRect.Y + Math.Max((palettePanelRect.Height - collapseHandleHeight) * 0.5f, 12), collapseHandleWidth, collapseHandleHeight));
 
         UiRect toolbarBodyRect = GetPanelBodyRect(toolbarRect);
         UiRect toolbarButtonRegion = toolbarBodyRect;
@@ -1056,10 +1073,11 @@ public static partial class EditorLayoutEngine
             10,
             [
                 PixelStudioAction.NewBlankDocument,
-                PixelStudioAction.LoadDemoDocument,
+                PixelStudioAction.SaveProjectDocument,
+                PixelStudioAction.LoadProjectDocument,
                 PixelStudioAction.ImportImage
             ],
-            92,
+            104,
             30));
         documentButtons.AddRange(CreateButtonRow(
             commandBarRect.X + 16,
@@ -1067,6 +1085,7 @@ public static partial class EditorLayoutEngine
             28,
             10,
             [
+                PixelStudioAction.LoadDemoDocument,
                 PixelStudioAction.ResizeCanvas16,
                 PixelStudioAction.ResizeCanvas32,
                 PixelStudioAction.ResizeCanvas64,
@@ -1137,7 +1156,9 @@ public static partial class EditorLayoutEngine
         UiRect? savedPaletteScrollThumbRect = null;
         UiRect? paletteLibraryRect = null;
         UiRect? paletteRenameFieldRect = null;
+        UiRect? layerRenameFieldRect = null;
         UiRect? palettePromptRect = null;
+        UiRect? contextMenuRect = null;
 
         float librarySectionHeight = pixelStudio.PaletteLibraryVisible ? 164 : 0;
         float librarySectionY = pixelStudio.PaletteLibraryVisible
@@ -1320,6 +1341,8 @@ public static partial class EditorLayoutEngine
                 96,
                 24);
 
+        List<ActionRect<PixelStudioContextMenuAction>> contextMenuButtons = [];
+
         UiRect? layerListViewportRect = null;
         UiRect? layerScrollTrackRect = null;
         UiRect? layerScrollThumbRect = null;
@@ -1328,6 +1351,12 @@ public static partial class EditorLayoutEngine
         float layerListY = layersButtonRegion.Y + layersButtonRegion.Height + 12;
         if (!sidebarCollapsed)
         {
+            if (pixelStudio.LayerRenameActive)
+            {
+                layerRenameFieldRect = new UiRect(layersBodyRect.X, layerListY, layersBodyRect.Width, 30);
+                layerListY += 38;
+            }
+
             UiRect layerViewportFrameRect = new(layersBodyRect.X, layerListY, layersBodyRect.Width, Math.Max(layersBodyRect.Y + layersBodyRect.Height - layerListY, 0));
             ScrollRegionLayout layerScroll = CreateScrollRegion(layerViewportFrameRect, pixelStudio.Layers.Count, 32, 8, pixelStudio.LayerScrollRow);
             layerListViewportRect = layerScroll.ContentRect;
@@ -1352,6 +1381,36 @@ public static partial class EditorLayoutEngine
                 {
                     Index = layerIndex,
                     Rect = new UiRect(layerListViewportRect.Value.X + 46, layerY, Math.Max(layerListViewportRect.Value.Width - 46, 48), 32)
+                });
+            }
+        }
+
+        if (pixelStudio.ContextMenuVisible && pixelStudio.ContextMenuItems.Count > 0)
+        {
+            const float contextMenuItemHeight = 28f;
+            const float contextMenuPadding = 6f;
+            float contextMenuWidth = pixelStudio.ContextMenuItems
+                .Select(item => EstimateButtonWidth(item.Label, 116, 20, 220))
+                .DefaultIfEmpty(116f)
+                .Max();
+            float menuHeight = (pixelStudio.ContextMenuItems.Count * contextMenuItemHeight) + (contextMenuPadding * 2);
+            float maxMenuX = Math.Max(workspaceRect.X + workspaceRect.Width - contextMenuWidth - 8, workspaceRect.X + 8);
+            float maxMenuY = Math.Max(workspaceRect.Y + workspaceRect.Height - menuHeight - 8, workspaceRect.Y + 8);
+            float menuX = Math.Clamp(pixelStudio.ContextMenuX, workspaceRect.X + 8, maxMenuX);
+            float menuY = Math.Clamp(pixelStudio.ContextMenuY, workspaceRect.Y + 8, maxMenuY);
+            contextMenuRect = new UiRect(menuX, menuY, contextMenuWidth, menuHeight);
+
+            for (int index = 0; index < pixelStudio.ContextMenuItems.Count; index++)
+            {
+                PixelStudioContextMenuItemView item = pixelStudio.ContextMenuItems[index];
+                contextMenuButtons.Add(new ActionRect<PixelStudioContextMenuAction>
+                {
+                    Action = item.Action,
+                    Rect = new UiRect(
+                        menuX + contextMenuPadding,
+                        menuY + contextMenuPadding + (index * contextMenuItemHeight),
+                        contextMenuWidth - (contextMenuPadding * 2),
+                        contextMenuItemHeight)
                 });
             }
         }
@@ -1436,16 +1495,12 @@ public static partial class EditorLayoutEngine
             }
         }
 
-        float availableCanvasWidth = Math.Max(canvasViewportRegion.Width, 120);
-        float availableCanvasHeight = Math.Max(canvasViewportRegion.Height, 120);
-        int maxCellWidth = Math.Max((int)MathF.Floor(availableCanvasWidth / pixelStudio.CanvasWidth), 2);
-        int maxCellHeight = Math.Max((int)MathF.Floor(availableCanvasHeight / pixelStudio.CanvasHeight), 2);
-        int cellSize = Math.Max(2, Math.Min(pixelStudio.Zoom, Math.Min(maxCellWidth, maxCellHeight)));
+        int cellSize = Math.Max(2, pixelStudio.Zoom);
         float viewportWidth = cellSize * pixelStudio.CanvasWidth;
         float viewportHeight = cellSize * pixelStudio.CanvasHeight;
         UiRect canvasViewportRect = new(
-            canvasViewportRegion.X + Math.Max((canvasViewportRegion.Width - viewportWidth) * 0.5f, 0),
-            canvasViewportRegion.Y + Math.Max((canvasViewportRegion.Height - viewportHeight) * 0.5f, 0),
+            canvasViewportRegion.X + ((canvasViewportRegion.Width - viewportWidth) * 0.5f) + pixelStudio.CanvasPanX,
+            canvasViewportRegion.Y + ((canvasViewportRegion.Height - viewportHeight) * 0.5f) + pixelStudio.CanvasPanY,
             viewportWidth,
             viewportHeight);
 
@@ -1473,6 +1528,7 @@ public static partial class EditorLayoutEngine
             CommandBarRect = commandBarRect,
             ToolbarRect = toolbarRect,
             CanvasPanelRect = canvasPanelRect,
+            CanvasClipRect = canvasViewportRegion,
             CanvasViewportRect = canvasViewportRect,
             LeftSplitterRect = leftSplitterRect,
             RightSplitterRect = rightSplitterRect,
@@ -1497,7 +1553,9 @@ public static partial class EditorLayoutEngine
             FrameScrollThumbRect = frameScrollThumbRect,
             PaletteLibraryRect = paletteLibraryRect,
             PaletteRenameFieldRect = paletteRenameFieldRect,
+            LayerRenameFieldRect = layerRenameFieldRect,
             PalettePromptRect = palettePromptRect,
+            ContextMenuRect = contextMenuRect,
             CanvasCellSize = cellSize,
             ToolButtons = toolButtons,
             DocumentButtons = documentButtons,
@@ -1505,6 +1563,7 @@ public static partial class EditorLayoutEngine
             PaletteButtons = paletteButtons,
             PaletteLibraryButtons = paletteLibraryButtons,
             PalettePromptButtons = palettePromptButtons,
+            ContextMenuButtons = contextMenuButtons,
             LayerButtons = layerButtons,
             TimelineButtons = timelineButtons,
             PaletteSwatches = paletteSwatches,
@@ -1580,8 +1639,8 @@ public static partial class EditorLayoutEngine
                 Id = $"Action.{action}",
                 Label = GetPixelStudioActionLabel(action),
                 Value = action,
-                MinWidth = minimumWidth,
-                MaxWidth = 220,
+                MinWidth = Math.Max(minimumWidth, EstimateButtonWidth(GetPixelStudioActionLabel(action), 0, padding, 240)),
+                MaxWidth = 240,
                 Height = height,
                 HorizontalPadding = padding
             }).ToList(),
@@ -1668,6 +1727,8 @@ public static partial class EditorLayoutEngine
         return action switch
         {
             PixelStudioAction.NewBlankDocument => "New Sprite",
+            PixelStudioAction.SaveProjectDocument => "Save",
+            PixelStudioAction.LoadProjectDocument => "Open",
             PixelStudioAction.LoadDemoDocument => "Demo",
             PixelStudioAction.ImportImage => "Import",
             PixelStudioAction.ResizeCanvas16 => "16px",

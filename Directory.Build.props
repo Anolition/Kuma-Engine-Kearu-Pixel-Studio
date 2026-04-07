@@ -3,7 +3,6 @@
     <LangVersion>latest</LangVersion>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <AnalysisLevel>latest</AnalysisLevel>
-    <MSBuildEnableWorkloadResolver>false</MSBuildEnableWorkloadResolver>
     <NuGetAudit>false</NuGetAudit>
   </PropertyGroup>
 </Project>

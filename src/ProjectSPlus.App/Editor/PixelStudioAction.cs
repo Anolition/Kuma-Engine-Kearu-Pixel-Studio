@@ -3,6 +3,8 @@ namespace ProjectSPlus.App.Editor;
 public enum PixelStudioAction
 {
     NewBlankDocument,
+    SaveProjectDocument,
+    LoadProjectDocument,
     LoadDemoDocument,
     ImportImage,
     ResizeCanvas16,

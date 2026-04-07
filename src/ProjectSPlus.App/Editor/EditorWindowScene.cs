@@ -62,6 +62,8 @@ public sealed partial class EditorWindowScene : IWindowScene
     private bool _paletteLibraryVisible;
     private bool _palettePromptVisible;
     private bool _paletteRenameActive;
+    private bool _layerRenameActive;
+    private bool _pixelContextMenuVisible;
     private bool _promptForPaletteGenerationAfterImport;
     private bool _leftPanelCollapsed;
     private bool _rightPanelCollapsed;
@@ -70,6 +72,9 @@ public sealed partial class EditorWindowScene : IWindowScene
     private ShellDragMode _shellDragMode;
     private PixelStudioDragMode _pixelDragMode;
     private string _paletteRenameBuffer = string.Empty;
+    private string _layerRenameBuffer = string.Empty;
+    private float _pixelContextMenuX;
+    private float _pixelContextMenuY;
 
     public EditorWindowScene(EditorShell shell, string initialThemeName)
         : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true)
@@ -127,6 +132,14 @@ public sealed partial class EditorWindowScene : IWindowScene
         _tabs = CreateDefaultTabs();
         _pixelStudio = CreateDefaultPixelStudio();
         ApplyInitialSavedPaletteIfAvailable();
+        if (!string.IsNullOrWhiteSpace(_lastProjectPath))
+        {
+            string? lastDocumentPath = FindPreferredPixelStudioDocument(_lastProjectPath);
+            if (!string.IsNullOrWhiteSpace(lastDocumentPath))
+            {
+                TryLoadPixelStudioDocument(lastDocumentPath, out _);
+            }
+        }
         _uiState.ProjectForm = new EditorProjectFormState
         {
             ProjectLibraryPath = _projectLibraryPath,
@@ -472,7 +485,7 @@ public sealed partial class EditorWindowScene : IWindowScene
             return;
         }
 
-        if (HandlePixelStudioLayoutDrag(_layoutSnapshot.PixelStudio, position.X))
+        if (HandlePixelStudioLayoutDrag(_layoutSnapshot.PixelStudio, position.X, position.Y))
         {
             return;
         }
@@ -634,13 +647,18 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public AppSettings CaptureSettings(AppSettings currentSettings, IWindow window)
     {
+        if (!string.IsNullOrWhiteSpace(_currentPixelDocumentPath))
+        {
+            SavePixelStudioDocument();
+        }
+
         WindowSettings previousWindow = currentSettings.Window.Normalize();
         int safeWidth = window.Size.X >= WindowSettings.MinimumWidth ? window.Size.X : previousWindow.Width;
         int safeHeight = window.Size.Y >= WindowSettings.MinimumHeight ? window.Size.Y : previousWindow.Height;
 
         WindowSettings windowSettings = new()
         {
-            Title = "Project S+",
+            Title = EditorBranding.EngineName,
             Width = safeWidth,
             Height = safeHeight,
             StartMaximized = window.WindowState == WindowState.Maximized
@@ -690,7 +708,9 @@ public sealed partial class EditorWindowScene : IWindowScene
     private string CurrentThemeLabel =>
         string.Equals(_theme.Name, EditorThemeCatalog.DarkThemeName, StringComparison.OrdinalIgnoreCase)
             ? "Dark"
-            : "Light";
+            : string.Equals(_theme.Name, EditorThemeCatalog.LightThemeName, StringComparison.OrdinalIgnoreCase)
+                ? "Light"
+                : "Kuma";
 
     private void SyncUiState(string? overrideStatus = null)
     {
@@ -724,7 +744,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _uiState.ProjectForm.FolderPickerEntries = GetDirectoryEntries(_uiState.ProjectForm.FolderPickerPath);
 
         string shortcutSummary = CurrentPage == EditorPageKind.PixelStudio
-            ? "Pixel Studio: Ctrl+Z Undo | Ctrl+Y Redo | Left drag paints | Right-click layer deletes"
+            ? $"{EditorBranding.PixelToolName}: Ctrl+Z Undo | Ctrl+Y Redo | Wheel zooms | Middle drag pans | Right-click layers and palettes for options"
             : $"Theme: {GetKeyLabel(ShortcutAction.ToggleTheme)} | Size: {GetKeyLabel(ShortcutAction.CycleFontSize)} | Font: {GetKeyLabel(ShortcutAction.CycleFontFamily)} | Prefs: {GetKeyLabel(ShortcutAction.TogglePreferences)}";
         _uiState.StatusText = overrideStatus ?? shortcutSummary;
         _shell.SetStatus(_uiState.StatusText);
@@ -744,7 +764,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         }
 
         string tabTitle = _tabs.FirstOrDefault(tab => tab.Id == _uiState.SelectedTabId)?.Title ?? "Home";
-        _window.Title = $"Project S+ [{CurrentThemeLabel}] - {tabTitle}";
+        _window.Title = $"{EditorBranding.EngineName} [{CurrentThemeLabel}] - {tabTitle}";
     }
 
     private void ApplyShortcutRebind(Key key)
@@ -882,6 +902,9 @@ public sealed partial class EditorWindowScene : IWindowScene
 
         AddRecentProject(entry);
         _lastProjectPath = entry.Path;
+        ReplacePixelStudioDocument(CreateBlankPixelStudio(32, 32));
+        _pixelStudio.DocumentName = entry.Name;
+        _currentPixelDocumentPath = null;
         OpenPage(EditorPageKind.Projects, $"Created {projectName}");
     }
 
@@ -895,7 +918,11 @@ public sealed partial class EditorWindowScene : IWindowScene
         RecentProjectEntry project = _recentProjects[index];
         AddRecentProject(project);
         _lastProjectPath = project.Path;
-        OpenPage(EditorPageKind.Projects, $"Selected {project.Name}");
+        _currentPixelDocumentPath = FindPreferredPixelStudioDocument(project.Path);
+        string status = !string.IsNullOrWhiteSpace(_currentPixelDocumentPath) && TryLoadPixelStudioDocument(_currentPixelDocumentPath, out string loadStatus)
+            ? loadStatus
+            : $"Selected {project.Name}";
+        OpenPage(EditorPageKind.Projects, status);
     }
 
     private void AddRecentProject(RecentProjectEntry project)
@@ -945,6 +972,9 @@ public sealed partial class EditorWindowScene : IWindowScene
 
         AddRecentProject(entry);
         _lastProjectPath = entry.Path;
+        ReplacePixelStudioDocument(CreateBlankPixelStudio(32, 32));
+        _pixelStudio.DocumentName = entry.Name;
+        _currentPixelDocumentPath = null;
         _uiState.ProjectForm.ProjectName = $"{projectName}{suffix switch { > 1 => suffix.ToString(), _ => string.Empty }}";
         _uiState.ProjectForm.ActiveField = EditorTextField.None;
         _uiState.ProjectForm.FolderPickerVisible = false;
@@ -1039,7 +1069,7 @@ public sealed partial class EditorWindowScene : IWindowScene
             {
                 Action = ShortcutAction.ToggleTheme,
                 Label = "Toggle Theme",
-                Description = "Switch between dark and light editor themes.",
+                Description = "Cycle between Dark, Light, and Kuma editor themes.",
                 Key = ParseKey(shortcuts.ToggleTheme, Key.F6)
             },
             new EditorShortcutBinding
@@ -1075,7 +1105,7 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     private static string GetDefaultProjectLibraryPath()
     {
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "Project S+ Projects");
+        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), EditorBranding.DefaultProjectLibraryName);
     }
 
     private static string ResolveAvailableFontFamily(string? preferredFontFamily)
@@ -1271,7 +1301,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         return
         [
             CreateTab(EditorPageKind.Home, "Home", "home"),
-            CreateTab(EditorPageKind.PixelStudio, "Pixel Studio", "pixel-studio"),
+            CreateTab(EditorPageKind.PixelStudio, EditorBranding.PixelToolName, "pixel-studio"),
             CreateTab(EditorPageKind.Projects, "Projects", "projects"),
             CreateTab(EditorPageKind.Layout, "Layout", "layout"),
             CreateTab(EditorPageKind.Preferences, "Preferences", "preferences")
@@ -1293,7 +1323,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         return page switch
         {
             EditorPageKind.Home => "Home",
-            EditorPageKind.PixelStudio => "Pixel Studio",
+            EditorPageKind.PixelStudio => EditorBranding.PixelToolName,
             EditorPageKind.Projects => "Projects",
             EditorPageKind.Layout => "Layout",
             EditorPageKind.Preferences => "Preferences",

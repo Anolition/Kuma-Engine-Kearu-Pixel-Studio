@@ -2,7 +2,7 @@ namespace ProjectSPlus.Core.Configuration;
 
 public sealed class EditorSettings
 {
-    public string ThemeName { get; init; } = "ProjectSPlus.Dark";
+    public string ThemeName { get; init; } = "ProjectSPlus.Kuma";
 
     public string PreferredFontFamily { get; init; } = "Segoe UI";
 

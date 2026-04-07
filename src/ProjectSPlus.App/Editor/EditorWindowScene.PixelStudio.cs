@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 using ProjectSPlus.Core.Configuration;
 using ProjectSPlus.Editor.Themes;
 using Silk.NET.Input;
@@ -7,12 +9,25 @@ namespace ProjectSPlus.App.Editor;
 
 public sealed partial class EditorWindowScene
 {
+    private const string DefaultPaletteSelectionId = "__default_palette__";
+
     private enum PixelStudioDragMode
     {
         None,
+        PanCanvas,
         ResizeToolsPanel,
         ResizeSidebar
     }
+
+    private static readonly JsonSerializerOptions PixelStudioDocumentSerializerOptions = new()
+    {
+        WriteIndented = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters =
+        {
+            new JsonStringEnumConverter()
+        }
+    };
 
     private readonly Stack<PixelStudioState> _pixelUndoStack = [];
     private readonly Stack<PixelStudioState> _pixelRedoStack = [];
@@ -22,6 +37,13 @@ public sealed partial class EditorWindowScene
     private bool _strokeChanged;
     private int _lastStrokeCellIndex = -1;
     private long _lastPlaybackTick;
+    private int? _contextPaletteIndex;
+    private int? _contextLayerIndex;
+    private string? _currentPixelDocumentPath;
+    private float _pixelPanDragStartMouseX;
+    private float _pixelPanDragStartMouseY;
+    private float _pixelPanDragStartX;
+    private float _pixelPanDragStartY;
 
     private bool HandlePixelStudioKeyDown(IKeyboard keyboard, Key key)
     {
@@ -79,14 +101,46 @@ public sealed partial class EditorWindowScene
     {
         if (button == MouseButton.Right)
         {
-            IndexedRect? layerRow = layout.LayerRows.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
-            if (layerRow is not null)
+            if (layout.ContextMenuRect is not null && layout.ContextMenuRect.Value.Contains(mouseX, mouseY))
             {
-                DeletePixelLayer(layerRow.Index);
                 return true;
             }
 
+            IndexedRect? savedPaletteRow = layout.SavedPaletteRows.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
+            if (savedPaletteRow is not null && savedPaletteRow.Index >= 0)
+            {
+                SelectAndApplySavedPalette(savedPaletteRow.Index);
+                OpenPaletteContextMenu(savedPaletteRow.Index, mouseX, mouseY);
+                return true;
+            }
+
+            IndexedRect? layerRow = layout.LayerRows.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
+            if (layerRow is not null)
+            {
+                StopPixelPlayback();
+                _pixelStudio.ActiveLayerIndex = Math.Clamp(layerRow.Index, 0, CurrentPixelFrame.Layers.Count - 1);
+                OpenLayerContextMenu(layerRow.Index, mouseX, mouseY);
+                return true;
+            }
+
+            ClosePixelContextMenu();
             return false;
+        }
+
+        if (button == MouseButton.Middle)
+        {
+            if (!layout.CanvasClipRect.Contains(mouseX, mouseY))
+            {
+                return false;
+            }
+
+            ClosePixelContextMenu();
+            _pixelDragMode = PixelStudioDragMode.PanCanvas;
+            _pixelPanDragStartMouseX = mouseX;
+            _pixelPanDragStartMouseY = mouseY;
+            _pixelPanDragStartX = _pixelStudio.CanvasPanX;
+            _pixelPanDragStartY = _pixelStudio.CanvasPanY;
+            return true;
         }
 
         if (button != MouseButton.Left)
@@ -94,26 +148,47 @@ public sealed partial class EditorWindowScene
             return false;
         }
 
+        if (layout.ContextMenuRect is not null)
+        {
+            ActionRect<PixelStudioContextMenuAction>? contextButton = layout.ContextMenuButtons.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
+            if (contextButton is not null)
+            {
+                ExecutePixelStudioContextMenuAction(contextButton.Action);
+                return true;
+            }
+
+            if (!layout.ContextMenuRect.Value.Contains(mouseX, mouseY))
+            {
+                ClosePixelContextMenu();
+                RefreshPixelStudioView("Closed context menu.", rebuildLayout: true);
+                return true;
+            }
+        }
+
         if (layout.LeftCollapseHandleRect.Contains(mouseX, mouseY))
         {
+            ClosePixelContextMenu();
             TogglePixelToolsCollapse();
             return true;
         }
 
         if (layout.RightCollapseHandleRect.Contains(mouseX, mouseY))
         {
+            ClosePixelContextMenu();
             TogglePixelSidebarCollapse();
             return true;
         }
 
         if (layout.LeftSplitterRect.Contains(mouseX, mouseY))
         {
+            ClosePixelContextMenu();
             _pixelDragMode = PixelStudioDragMode.ResizeToolsPanel;
             return true;
         }
 
         if (layout.RightSplitterRect.Contains(mouseX, mouseY))
         {
+            ClosePixelContextMenu();
             _pixelDragMode = PixelStudioDragMode.ResizeSidebar;
             return true;
         }
@@ -121,6 +196,7 @@ public sealed partial class EditorWindowScene
         ActionRect<PixelStudioToolKind>? toolButton = layout.ToolButtons.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
         if (toolButton is not null)
         {
+            ClosePixelContextMenu();
             ExecutePixelStudioTool(toolButton.Action);
             return true;
         }
@@ -158,13 +234,15 @@ public sealed partial class EditorWindowScene
         if (paletteSwatch is not null)
         {
             _pixelStudio.ActivePaletteIndex = Math.Clamp(paletteSwatch.Index, 0, _pixelStudio.Palette.Count - 1);
-            RefreshPixelStudioView($"Pixel Studio color set to {BuildPixelStudioViewState().ActiveColorHex}.");
+            ClosePixelContextMenu();
+            RefreshPixelStudioView($"{EditorBranding.PixelToolName} color set to {BuildPixelStudioViewState().ActiveColorHex}.");
             return true;
         }
 
         IndexedRect? visibilityButton = layout.LayerVisibilityButtons.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
         if (visibilityButton is not null)
         {
+            ClosePixelContextMenu();
             TogglePixelLayerVisibility(visibilityButton.Index);
             return true;
         }
@@ -174,7 +252,8 @@ public sealed partial class EditorWindowScene
         {
             StopPixelPlayback();
             _pixelStudio.ActiveLayerIndex = Math.Clamp(layerRowHit.Index, 0, CurrentPixelFrame.Layers.Count - 1);
-            RefreshPixelStudioView($"Pixel Studio layer selected: {CurrentPixelFrame.Layers[_pixelStudio.ActiveLayerIndex].Name}.");
+            ClosePixelContextMenu();
+            RefreshPixelStudioView($"{EditorBranding.PixelToolName} layer selected: {CurrentPixelFrame.Layers[_pixelStudio.ActiveLayerIndex].Name}.");
             return true;
         }
 
@@ -185,7 +264,8 @@ public sealed partial class EditorWindowScene
             _pixelStudio.ActiveFrameIndex = Math.Clamp(frameRow.Index, 0, _pixelStudio.Frames.Count - 1);
             _pixelStudio.PreviewFrameIndex = _pixelStudio.ActiveFrameIndex;
             _pixelStudio.ActiveLayerIndex = Math.Min(_pixelStudio.ActiveLayerIndex, CurrentPixelFrame.Layers.Count - 1);
-            RefreshPixelStudioView($"Pixel Studio frame selected: {CurrentPixelFrame.Name}.");
+            ClosePixelContextMenu();
+            RefreshPixelStudioView($"{EditorBranding.PixelToolName} frame selected: {CurrentPixelFrame.Name}.");
             return true;
         }
 
@@ -204,19 +284,30 @@ public sealed partial class EditorWindowScene
             _pixelDragMode = PixelStudioDragMode.None;
             EndPixelStroke();
         }
+
+        if (button == MouseButton.Middle && _pixelDragMode == PixelStudioDragMode.PanCanvas)
+        {
+            _pixelDragMode = PixelStudioDragMode.None;
+            RefreshPixelStudioView("Canvas pan set.", rebuildLayout: true);
+        }
     }
 
     private void HandlePixelStudioMouseMove(PixelStudioLayoutSnapshot layout, float mouseX, float mouseY)
     {
+        if (_pixelDragMode == PixelStudioDragMode.PanCanvas)
+        {
+            return;
+        }
+
         if (!_isPixelStrokeActive || !TryGetCanvasCellIndex(layout, mouseX, mouseY, out int cellIndex))
         {
             return;
         }
 
-        ApplyStrokeCell(cellIndex);
+        ApplyStrokePath(cellIndex);
     }
 
-    private bool HandlePixelStudioLayoutDrag(PixelStudioLayoutSnapshot layout, float mouseX)
+    private bool HandlePixelStudioLayoutDrag(PixelStudioLayoutSnapshot layout, float mouseX, float mouseY)
     {
         if (_pixelDragMode == PixelStudioDragMode.None)
         {
@@ -225,6 +316,11 @@ public sealed partial class EditorWindowScene
 
         switch (_pixelDragMode)
         {
+            case PixelStudioDragMode.PanCanvas:
+                _pixelStudio.CanvasPanX = _pixelPanDragStartX + (mouseX - _pixelPanDragStartMouseX);
+                _pixelStudio.CanvasPanY = _pixelPanDragStartY + (mouseY - _pixelPanDragStartMouseY);
+                RefreshPixelStudioPanLayout();
+                return true;
             case PixelStudioDragMode.ResizeToolsPanel:
                 _pixelToolsCollapsed = false;
                 _pixelToolsPanelWidth = Math.Clamp(mouseX - layout.ToolbarRect.X, 132, 280);
@@ -247,6 +343,22 @@ public sealed partial class EditorWindowScene
         int direction = scrollWheel.Y < 0 ? 1 : scrollWheel.Y > 0 ? -1 : 0;
         if (direction == 0)
         {
+            return;
+        }
+
+        if (layout.CanvasClipRect.Contains(mouseX, mouseY))
+        {
+            int previousZoom = _pixelStudio.DesiredZoom;
+            _pixelStudio.DesiredZoom = direction > 0
+                ? Math.Max(_pixelStudio.DesiredZoom - 2, 2)
+                : Math.Min(_pixelStudio.DesiredZoom + 2, 64);
+
+            if (_pixelStudio.DesiredZoom != previousZoom)
+            {
+                ClosePixelContextMenu();
+                RefreshPixelStudioView($"{EditorBranding.PixelToolName} zoom target set to {_pixelStudio.DesiredZoom}x.", rebuildLayout: true);
+            }
+
             return;
         }
 
@@ -286,6 +398,7 @@ public sealed partial class EditorWindowScene
             return false;
         }
 
+        ClosePixelContextMenu();
         ExecutePixelStudioAction(button.Action);
         return true;
     }
@@ -293,7 +406,7 @@ public sealed partial class EditorWindowScene
     private bool TryGetCanvasCellIndex(PixelStudioLayoutSnapshot layout, float mouseX, float mouseY, out int cellIndex)
     {
         cellIndex = -1;
-        if (!layout.CanvasViewportRect.Contains(mouseX, mouseY))
+        if (!layout.CanvasClipRect.Contains(mouseX, mouseY))
         {
             return false;
         }
@@ -318,7 +431,7 @@ public sealed partial class EditorWindowScene
             case PixelStudioToolKind.Pencil:
             case PixelStudioToolKind.Eraser:
                 BeginPixelStroke();
-                ApplyStrokeCell(cellIndex);
+                ApplyStrokePath(cellIndex);
                 return true;
             case PixelStudioToolKind.Fill:
                 ApplyPixelStudioChange(
@@ -373,9 +486,31 @@ public sealed partial class EditorWindowScene
         CurrentPixelLayer.Pixels[cellIndex] = nextValue;
         _lastStrokeCellIndex = cellIndex;
         _strokeChanged = true;
-        RefreshPixelStudioView(_pixelStudio.ActiveTool == PixelStudioToolKind.Eraser
-            ? "Erasing pixels..."
-            : $"Painting with {BuildPixelStudioViewState().ActiveColorHex}.");
+    }
+
+    private void ApplyStrokePath(int targetCellIndex)
+    {
+        if (!_isPixelStrokeActive || targetCellIndex < 0 || targetCellIndex >= CurrentPixelLayer.Pixels.Length)
+        {
+            return;
+        }
+
+        if (_lastStrokeCellIndex < 0)
+        {
+            ApplyStrokeCell(targetCellIndex);
+        }
+        else
+        {
+            foreach (int cellIndex in EnumerateStrokeCells(_lastStrokeCellIndex, targetCellIndex))
+            {
+                ApplyStrokeCell(cellIndex);
+            }
+        }
+
+        if (_strokeChanged)
+        {
+            RefreshPixelStudioPixels();
+        }
     }
 
     private void EndPixelStroke()
@@ -402,7 +537,7 @@ public sealed partial class EditorWindowScene
     {
         StopPixelPlayback();
         _pixelStudio.ActiveTool = tool;
-        RefreshPixelStudioView($"Pixel Studio tool: {tool}.");
+        RefreshPixelStudioView($"{EditorBranding.PixelToolName} tool: {tool}.");
     }
 
     private void ExecutePixelStudioAction(PixelStudioAction action)
@@ -416,8 +551,14 @@ public sealed partial class EditorWindowScene
                     return true;
                 });
                 break;
+            case PixelStudioAction.SaveProjectDocument:
+                SavePixelStudioDocumentAs();
+                break;
+            case PixelStudioAction.LoadProjectDocument:
+                OpenPixelStudioDocument();
+                break;
             case PixelStudioAction.LoadDemoDocument:
-                ApplyPixelStudioChange("Loaded the Project S+ smiley demo.", () =>
+                ApplyPixelStudioChange($"Loaded the {EditorBranding.PixelToolName} demo.", () =>
                 {
                     ReplacePixelStudioDocument(CreateDemoPixelStudio());
                     return true;
@@ -440,15 +581,15 @@ public sealed partial class EditorWindowScene
                 break;
             case PixelStudioAction.ZoomOut:
                 _pixelStudio.DesiredZoom = Math.Max(_pixelStudio.DesiredZoom - 2, 2);
-                RefreshPixelStudioView($"Pixel Studio zoom target set to {_pixelStudio.DesiredZoom}x.", rebuildLayout: true);
+                RefreshPixelStudioView($"{EditorBranding.PixelToolName} zoom target set to {_pixelStudio.DesiredZoom}x.", rebuildLayout: true);
                 break;
             case PixelStudioAction.ZoomIn:
                 _pixelStudio.DesiredZoom = Math.Min(_pixelStudio.DesiredZoom + 2, 64);
-                RefreshPixelStudioView($"Pixel Studio zoom target set to {_pixelStudio.DesiredZoom}x.", rebuildLayout: true);
+                RefreshPixelStudioView($"{EditorBranding.PixelToolName} zoom target set to {_pixelStudio.DesiredZoom}x.", rebuildLayout: true);
                 break;
             case PixelStudioAction.ToggleGrid:
                 _pixelStudio.ShowGrid = !_pixelStudio.ShowGrid;
-                RefreshPixelStudioView(_pixelStudio.ShowGrid ? "Pixel Studio grid enabled." : "Pixel Studio grid hidden.");
+                RefreshPixelStudioView(_pixelStudio.ShowGrid ? $"{EditorBranding.PixelToolName} grid enabled." : $"{EditorBranding.PixelToolName} grid hidden.");
                 break;
             case PixelStudioAction.TogglePaletteLibrary:
                 _paletteLibraryVisible = !_paletteLibraryVisible;
@@ -609,8 +750,8 @@ public sealed partial class EditorWindowScene
 
         ApplyPixelStudioChange(
             CurrentPixelFrame.Layers[layerIndex].IsVisible
-                ? $"Pixel Studio layer hidden: {CurrentPixelFrame.Layers[layerIndex].Name}."
-                : $"Pixel Studio layer shown: {CurrentPixelFrame.Layers[layerIndex].Name}.",
+                    ? $"{EditorBranding.PixelToolName} layer hidden: {CurrentPixelFrame.Layers[layerIndex].Name}."
+                    : $"{EditorBranding.PixelToolName} layer shown: {CurrentPixelFrame.Layers[layerIndex].Name}.",
             () =>
             {
                 bool newVisibility = !CurrentPixelFrame.Layers[layerIndex].IsVisible;
@@ -626,6 +767,8 @@ public sealed partial class EditorWindowScene
 
     private void AddPixelLayer()
     {
+        ClosePixelContextMenu();
+        _layerRenameActive = false;
         ApplyPixelStudioChange("Added a new layer.", () =>
         {
             int layerNumber = CurrentPixelFrame.Layers.Count + 1;
@@ -651,6 +794,9 @@ public sealed partial class EditorWindowScene
             return;
         }
 
+        ClosePixelContextMenu();
+        _layerRenameActive = false;
+        _layerRenameBuffer = string.Empty;
         ApplyPixelStudioChange("Deleted layer.", () =>
         {
             foreach (PixelStudioFrameState frame in _pixelStudio.Frames)
@@ -856,6 +1002,110 @@ public sealed partial class EditorWindowScene
         _renderer?.UpdateUiState(_uiState);
     }
 
+    private void RefreshPixelStudioInteraction(bool rebuildLayout = false)
+    {
+        EnsurePixelStudioIndices();
+        _uiState.PixelStudio = BuildPixelStudioViewState();
+        if (rebuildLayout && _width > 0 && _height > 0)
+        {
+            _layoutSnapshot = EditorLayoutEngine.Create(_width, _height, _shell.Layout, _uiState);
+            _renderer?.UpdateLayoutSnapshot(_layoutSnapshot);
+        }
+
+        _renderer?.UpdateUiState(_uiState);
+    }
+
+    private void RefreshPixelStudioPanLayout()
+    {
+        EnsurePixelStudioIndices();
+        _uiState.PixelStudio.CanvasPanX = _pixelStudio.CanvasPanX;
+        _uiState.PixelStudio.CanvasPanY = _pixelStudio.CanvasPanY;
+        if (_layoutSnapshot?.PixelStudio is not null)
+        {
+            PixelStudioLayoutSnapshot currentLayout = _layoutSnapshot.PixelStudio;
+            int cellSize = Math.Max(currentLayout.CanvasCellSize, 1);
+            float viewportWidth = cellSize * _pixelStudio.CanvasWidth;
+            float viewportHeight = cellSize * _pixelStudio.CanvasHeight;
+            UiRect canvasViewportRect = new(
+                currentLayout.CanvasClipRect.X + ((currentLayout.CanvasClipRect.Width - viewportWidth) * 0.5f) + _pixelStudio.CanvasPanX,
+                currentLayout.CanvasClipRect.Y + ((currentLayout.CanvasClipRect.Height - viewportHeight) * 0.5f) + _pixelStudio.CanvasPanY,
+                viewportWidth,
+                viewportHeight);
+
+            _layoutSnapshot = new EditorLayoutSnapshot
+            {
+                LeftPanelRect = _layoutSnapshot.LeftPanelRect,
+                LeftPanelHeaderRect = _layoutSnapshot.LeftPanelHeaderRect,
+                LeftPanelBodyRect = _layoutSnapshot.LeftPanelBodyRect,
+                RightPanelRect = _layoutSnapshot.RightPanelRect,
+                RightPanelHeaderRect = _layoutSnapshot.RightPanelHeaderRect,
+                RightPanelBodyRect = _layoutSnapshot.RightPanelBodyRect,
+                WorkspaceRect = _layoutSnapshot.WorkspaceRect,
+                StatusBarRect = _layoutSnapshot.StatusBarRect,
+                MenuBarRect = _layoutSnapshot.MenuBarRect,
+                MenuLogoRect = _layoutSnapshot.MenuLogoRect,
+                TabStripRect = _layoutSnapshot.TabStripRect,
+                LeftSplitterRect = _layoutSnapshot.LeftSplitterRect,
+                RightSplitterRect = _layoutSnapshot.RightSplitterRect,
+                LeftCollapseHandleRect = _layoutSnapshot.LeftCollapseHandleRect,
+                RightCollapseHandleRect = _layoutSnapshot.RightCollapseHandleRect,
+                MenuButtons = _layoutSnapshot.MenuButtons,
+                TabButtons = _layoutSnapshot.TabButtons,
+                HomeHeroPanelRect = _layoutSnapshot.HomeHeroPanelRect,
+                HomeActionsPanelRect = _layoutSnapshot.HomeActionsPanelRect,
+                HomeRecentPanelRect = _layoutSnapshot.HomeRecentPanelRect,
+                HomeCards = _layoutSnapshot.HomeCards,
+                RecentProjectRows = _layoutSnapshot.RecentProjectRows,
+                HomeRecentViewportRect = _layoutSnapshot.HomeRecentViewportRect,
+                HomeRecentScrollTrackRect = _layoutSnapshot.HomeRecentScrollTrackRect,
+                HomeRecentScrollThumbRect = _layoutSnapshot.HomeRecentScrollThumbRect,
+                ProjectsFormPanelRect = _layoutSnapshot.ProjectsFormPanelRect,
+                ProjectsRecentPanelRect = _layoutSnapshot.ProjectsRecentPanelRect,
+                ProjectRows = _layoutSnapshot.ProjectRows,
+                ProjectsRecentViewportRect = _layoutSnapshot.ProjectsRecentViewportRect,
+                ProjectsRecentScrollTrackRect = _layoutSnapshot.ProjectsRecentScrollTrackRect,
+                ProjectsRecentScrollThumbRect = _layoutSnapshot.ProjectsRecentScrollThumbRect,
+                PreferencesGeneralPanelRect = _layoutSnapshot.PreferencesGeneralPanelRect,
+                PreferencesShortcutPanelRect = _layoutSnapshot.PreferencesShortcutPanelRect,
+                PreferenceRows = _layoutSnapshot.PreferenceRows,
+                PreferenceViewportRect = _layoutSnapshot.PreferenceViewportRect,
+                PreferenceScrollTrackRect = _layoutSnapshot.PreferenceScrollTrackRect,
+                PreferenceScrollThumbRect = _layoutSnapshot.PreferenceScrollThumbRect,
+                LayoutInfoPanelRect = _layoutSnapshot.LayoutInfoPanelRect,
+                ScratchInfoPanelRect = _layoutSnapshot.ScratchInfoPanelRect,
+                LeftPanelRecentProjectRows = _layoutSnapshot.LeftPanelRecentProjectRows,
+                LeftPanelRecentViewportRect = _layoutSnapshot.LeftPanelRecentViewportRect,
+                LeftPanelRecentScrollTrackRect = _layoutSnapshot.LeftPanelRecentScrollTrackRect,
+                LeftPanelRecentScrollThumbRect = _layoutSnapshot.LeftPanelRecentScrollThumbRect,
+                MenuEntries = _layoutSnapshot.MenuEntries,
+                MenuDropdownRect = _layoutSnapshot.MenuDropdownRect,
+                TabCloseButtons = _layoutSnapshot.TabCloseButtons,
+                ProjectFormActions = _layoutSnapshot.ProjectFormActions,
+                PreferenceActions = _layoutSnapshot.PreferenceActions,
+                FolderPickerActions = _layoutSnapshot.FolderPickerActions,
+                FolderPickerRows = _layoutSnapshot.FolderPickerRows,
+                FolderPickerRect = _layoutSnapshot.FolderPickerRect,
+                FolderPickerHeaderRect = _layoutSnapshot.FolderPickerHeaderRect,
+                FolderPickerBodyRect = _layoutSnapshot.FolderPickerBodyRect,
+                FolderPickerViewportRect = _layoutSnapshot.FolderPickerViewportRect,
+                FolderPickerScrollTrackRect = _layoutSnapshot.FolderPickerScrollTrackRect,
+                FolderPickerScrollThumbRect = _layoutSnapshot.FolderPickerScrollThumbRect,
+                PixelStudio = currentLayout.WithCanvasViewport(canvasViewportRect)
+            };
+            _renderer?.UpdateLayoutSnapshot(_layoutSnapshot);
+        }
+
+        _renderer?.UpdateUiState(_uiState);
+    }
+
+    private void RefreshPixelStudioPixels()
+    {
+        EnsurePixelStudioIndices();
+        _uiState.PixelStudio.CompositePixels = ComposeVisiblePixels(CurrentPixelFrame);
+        _uiState.PixelStudio.PreviewPixels = ComposeVisiblePixels(PreviewPixelFrame);
+        _renderer?.UpdateUiState(_uiState);
+    }
+
     private bool FloodFillCell(int cellIndex, int paletteIndex)
     {
         int[] pixels = CurrentPixelLayer.Pixels;
@@ -927,6 +1177,42 @@ public sealed partial class EditorWindowScene
         return -1;
     }
 
+    private IEnumerable<int> EnumerateStrokeCells(int fromCellIndex, int toCellIndex)
+    {
+        int width = _pixelStudio.CanvasWidth;
+        int x0 = fromCellIndex % width;
+        int y0 = fromCellIndex / width;
+        int x1 = toCellIndex % width;
+        int y1 = toCellIndex / width;
+        int dx = Math.Abs(x1 - x0);
+        int dy = Math.Abs(y1 - y0);
+        int sx = x0 < x1 ? 1 : -1;
+        int sy = y0 < y1 ? 1 : -1;
+        int error = dx - dy;
+
+        while (true)
+        {
+            yield return (y0 * width) + x0;
+            if (x0 == x1 && y0 == y1)
+            {
+                yield break;
+            }
+
+            int doubledError = error * 2;
+            if (doubledError > -dy)
+            {
+                error -= dy;
+                x0 += sx;
+            }
+
+            if (doubledError < dx)
+            {
+                error += dx;
+                y0 += sy;
+            }
+        }
+    }
+
     private PixelStudioViewState BuildPixelStudioViewState()
     {
         EnsurePixelStudioIndices();
@@ -938,6 +1224,8 @@ public sealed partial class EditorWindowScene
             CanvasWidth = _pixelStudio.CanvasWidth,
             CanvasHeight = _pixelStudio.CanvasHeight,
             Zoom = _pixelStudio.DesiredZoom,
+            CanvasPanX = _pixelStudio.CanvasPanX,
+            CanvasPanY = _pixelStudio.CanvasPanY,
             ShowGrid = _pixelStudio.ShowGrid,
             FramesPerSecond = _pixelStudio.FramesPerSecond,
             IsPlaying = _pixelStudio.IsPlaying,
@@ -951,6 +1239,7 @@ public sealed partial class EditorWindowScene
             PaletteLibraryVisible = _paletteLibraryVisible,
             PalettePromptVisible = _palettePromptVisible,
             PaletteRenameActive = _paletteRenameActive,
+            LayerRenameActive = _layerRenameActive,
             PromptForPaletteGenerationAfterImport = _promptForPaletteGenerationAfterImport,
             ToolsPanelPreferredWidth = _pixelToolsPanelWidth,
             SidebarPreferredWidth = _pixelSidebarWidth,
@@ -961,6 +1250,11 @@ public sealed partial class EditorWindowScene
             LayerScrollRow = _layerScrollRow,
             FrameScrollRow = _frameScrollRow,
             PaletteRenameBuffer = _paletteRenameBuffer,
+            LayerRenameBuffer = _layerRenameBuffer,
+            ContextMenuVisible = _pixelContextMenuVisible,
+            ContextMenuX = _pixelContextMenuX,
+            ContextMenuY = _pixelContextMenuY,
+            ContextMenuItems = BuildPixelContextMenuItems(),
             Palette = _pixelStudio.Palette.ToList(),
             CompositePixels = ComposeVisiblePixels(CurrentPixelFrame),
             PreviewPixels = ComposeVisiblePixels(PreviewPixelFrame),
@@ -986,7 +1280,7 @@ public sealed partial class EditorWindowScene
 
     private bool HandlePixelStudioTextKeyDown(Key key)
     {
-        if (!_paletteRenameActive)
+        if (!_paletteRenameActive && !_layerRenameActive)
         {
             return false;
         }
@@ -994,18 +1288,37 @@ public sealed partial class EditorWindowScene
         switch (key)
         {
             case Key.Backspace:
-                if (_paletteRenameBuffer.Length > 0)
+                if (_paletteRenameActive && _paletteRenameBuffer.Length > 0)
                 {
                     _paletteRenameBuffer = _paletteRenameBuffer[..^1];
                     RefreshPixelStudioView("Editing palette name.");
                 }
+                else if (_layerRenameActive && _layerRenameBuffer.Length > 0)
+                {
+                    _layerRenameBuffer = _layerRenameBuffer[..^1];
+                    RefreshPixelStudioView("Editing layer name.");
+                }
 
                 return true;
             case Key.Enter:
-                CommitPaletteRename();
+                if (_paletteRenameActive)
+                {
+                    CommitPaletteRename();
+                }
+                else
+                {
+                    CommitLayerRename();
+                }
                 return true;
             case Key.Escape:
-                CancelPaletteRename();
+                if (_paletteRenameActive)
+                {
+                    CancelPaletteRename();
+                }
+                else
+                {
+                    CancelLayerRename();
+                }
                 return true;
             default:
                 return true;
@@ -1014,14 +1327,50 @@ public sealed partial class EditorWindowScene
 
     private bool HandlePixelStudioTextInput(char character)
     {
-        if (!_paletteRenameActive || char.IsControl(character))
+        if ((!_paletteRenameActive && !_layerRenameActive) || char.IsControl(character))
         {
             return false;
         }
 
-        _paletteRenameBuffer += character;
-        RefreshPixelStudioView("Editing palette name.");
+        if (_paletteRenameActive)
+        {
+            _paletteRenameBuffer += character;
+            RefreshPixelStudioView("Editing palette name.");
+        }
+        else
+        {
+            _layerRenameBuffer += character;
+            RefreshPixelStudioView("Editing layer name.");
+        }
         return true;
+    }
+
+    private IReadOnlyList<PixelStudioContextMenuItemView> BuildPixelContextMenuItems()
+    {
+        if (!_pixelContextMenuVisible)
+        {
+            return [];
+        }
+
+        if (_contextPaletteIndex is not null)
+        {
+            return
+            [
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.RenamePalette, Label = "Rename Palette" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.DeletePalette, Label = "Delete Palette", IsDestructive = true }
+            ];
+        }
+
+        if (_contextLayerIndex is not null)
+        {
+            return
+            [
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.RenameLayer, Label = "Rename Layer" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.DeleteLayer, Label = "Delete Layer", IsDestructive = true }
+            ];
+        }
+
+        return [];
     }
 
     private IReadOnlyList<PixelStudioSavedPaletteView> BuildSavedPaletteViews()
@@ -1038,9 +1387,89 @@ public sealed partial class EditorWindowScene
             .ToList();
     }
 
+    private void OpenPaletteContextMenu(int paletteIndex, float x, float y)
+    {
+        _contextPaletteIndex = paletteIndex;
+        _contextLayerIndex = null;
+        _pixelContextMenuVisible = true;
+        _pixelContextMenuX = x;
+        _pixelContextMenuY = y;
+        _layerRenameActive = false;
+        RefreshPixelStudioView($"Opened palette menu for {_savedPixelPalettes[paletteIndex].Name}.", rebuildLayout: true);
+    }
+
+    private void OpenLayerContextMenu(int layerIndex, float x, float y)
+    {
+        _contextLayerIndex = layerIndex;
+        _contextPaletteIndex = null;
+        _pixelContextMenuVisible = true;
+        _pixelContextMenuX = x;
+        _pixelContextMenuY = y;
+        _paletteRenameActive = false;
+        RefreshPixelStudioView($"Opened layer menu for {CurrentPixelFrame.Layers[layerIndex].Name}.", rebuildLayout: true);
+    }
+
+    private void ClosePixelContextMenu()
+    {
+        _pixelContextMenuVisible = false;
+        _contextPaletteIndex = null;
+        _contextLayerIndex = null;
+    }
+
+    private void ExecutePixelStudioContextMenuAction(PixelStudioContextMenuAction action)
+    {
+        switch (action)
+        {
+            case PixelStudioContextMenuAction.RenamePalette:
+                if (_contextPaletteIndex is not null)
+                {
+                    _selectedPixelPaletteId = _savedPixelPalettes[Math.Clamp(_contextPaletteIndex.Value, 0, _savedPixelPalettes.Count - 1)].Id;
+                    ClosePixelContextMenu();
+                    StartPaletteRename();
+                }
+                break;
+            case PixelStudioContextMenuAction.DeletePalette:
+                if (_contextPaletteIndex is not null)
+                {
+                    _selectedPixelPaletteId = _savedPixelPalettes[Math.Clamp(_contextPaletteIndex.Value, 0, _savedPixelPalettes.Count - 1)].Id;
+                    ClosePixelContextMenu();
+                    DeleteSelectedSavedPalette();
+                }
+                break;
+            case PixelStudioContextMenuAction.RenameLayer:
+                if (_contextLayerIndex is not null)
+                {
+                    int layerIndex = Math.Clamp(_contextLayerIndex.Value, 0, CurrentPixelFrame.Layers.Count - 1);
+                    _pixelStudio.ActiveLayerIndex = layerIndex;
+                    ClosePixelContextMenu();
+                    StartLayerRename(layerIndex);
+                }
+                break;
+            case PixelStudioContextMenuAction.DeleteLayer:
+                if (_contextLayerIndex is not null)
+                {
+                    int layerIndex = Math.Clamp(_contextLayerIndex.Value, 0, CurrentPixelFrame.Layers.Count - 1);
+                    _pixelStudio.ActiveLayerIndex = layerIndex;
+                    ClosePixelContextMenu();
+                    DeletePixelLayer(layerIndex);
+                }
+                break;
+        }
+    }
+
     private void SelectAndApplySavedPalette(int index)
     {
-        if (index < 0 || index >= _savedPixelPalettes.Count)
+        if (index < 0)
+        {
+            ApplyPixelStudioChange("Applied the default palette.", () =>
+            {
+                ApplyDefaultPalette();
+                return true;
+            }, rebuildLayout: false);
+            return;
+        }
+
+        if (index >= _savedPixelPalettes.Count)
         {
             return;
         }
@@ -1067,6 +1496,7 @@ public sealed partial class EditorWindowScene
         _savedPixelPalettes.Add(palette);
         _activePixelPaletteId = palette.Id;
         _selectedPixelPaletteId = palette.Id;
+        ClosePixelContextMenu();
         _paletteRenameBuffer = palette.Name;
         RefreshPixelStudioView($"Saved palette {palette.Name}.", rebuildLayout: true);
     }
@@ -1118,6 +1548,8 @@ public sealed partial class EditorWindowScene
             return;
         }
 
+        ClosePixelContextMenu();
+        _layerRenameActive = false;
         _paletteRenameActive = true;
         _paletteRenameBuffer = selected.Name;
         RefreshPixelStudioView($"Renaming {selected.Name}.", rebuildLayout: true);
@@ -1150,6 +1582,7 @@ public sealed partial class EditorWindowScene
         });
         _paletteRenameActive = false;
         _paletteRenameBuffer = name;
+        ClosePixelContextMenu();
         RefreshPixelStudioView($"Renamed palette to {name}.", rebuildLayout: true);
     }
 
@@ -1157,7 +1590,47 @@ public sealed partial class EditorWindowScene
     {
         _paletteRenameActive = false;
         _paletteRenameBuffer = string.Empty;
+        ClosePixelContextMenu();
         RefreshPixelStudioView("Palette rename cancelled.", rebuildLayout: true);
+    }
+
+    private void StartLayerRename(int layerIndex)
+    {
+        if (layerIndex < 0 || layerIndex >= CurrentPixelFrame.Layers.Count)
+        {
+            RefreshPixelStudioView("Select a layer to rename.");
+            return;
+        }
+
+        ClosePixelContextMenu();
+        _paletteRenameActive = false;
+        _layerRenameActive = true;
+        _layerRenameBuffer = CurrentPixelFrame.Layers[layerIndex].Name;
+        RefreshPixelStudioView($"Renaming {CurrentPixelFrame.Layers[layerIndex].Name}.", rebuildLayout: true);
+    }
+
+    private void CommitLayerRename()
+    {
+        int layerIndex = Math.Clamp(_pixelStudio.ActiveLayerIndex, 0, CurrentPixelFrame.Layers.Count - 1);
+        string name = SanitizeLayerName(_layerRenameBuffer);
+        ApplyPixelStudioChange($"Renamed layer to {name}.", () =>
+        {
+            foreach (PixelStudioFrameState frame in _pixelStudio.Frames)
+            {
+                frame.Layers[layerIndex].Name = name;
+            }
+
+            return true;
+        });
+        _layerRenameActive = false;
+        _layerRenameBuffer = name;
+    }
+
+    private void CancelLayerRename()
+    {
+        _layerRenameActive = false;
+        _layerRenameBuffer = string.Empty;
+        RefreshPixelStudioView("Layer rename cancelled.", rebuildLayout: true);
     }
 
     private void DeleteSelectedSavedPalette()
@@ -1178,6 +1651,7 @@ public sealed partial class EditorWindowScene
         _selectedPixelPaletteId = _savedPixelPalettes.FirstOrDefault()?.Id;
         _paletteRenameActive = false;
         _paletteRenameBuffer = string.Empty;
+        ClosePixelContextMenu();
         RefreshPixelStudioView($"Deleted palette {selected.Name}.", rebuildLayout: true);
     }
 
@@ -1263,7 +1737,7 @@ public sealed partial class EditorWindowScene
     {
         return new PixelStudioState
         {
-            DocumentName = "Project S+ Demo",
+            DocumentName = $"{EditorBranding.PixelToolName} Demo",
             CanvasWidth = 16,
             CanvasHeight = 16,
             ActiveLayerIndex = 0,
@@ -1282,6 +1756,8 @@ public sealed partial class EditorWindowScene
         _pixelStudio.CanvasWidth = source.CanvasWidth;
         _pixelStudio.CanvasHeight = source.CanvasHeight;
         _pixelStudio.DesiredZoom = source.DesiredZoom;
+        _pixelStudio.CanvasPanX = source.CanvasPanX;
+        _pixelStudio.CanvasPanY = source.CanvasPanY;
         _pixelStudio.ShowGrid = source.ShowGrid;
         _pixelStudio.FramesPerSecond = source.FramesPerSecond;
         _pixelStudio.IsPlaying = source.IsPlaying;
@@ -1305,6 +1781,8 @@ public sealed partial class EditorWindowScene
             CanvasWidth = source.CanvasWidth,
             CanvasHeight = source.CanvasHeight,
             DesiredZoom = source.DesiredZoom,
+            CanvasPanX = source.CanvasPanX,
+            CanvasPanY = source.CanvasPanY,
             ShowGrid = source.ShowGrid,
             FramesPerSecond = source.FramesPerSecond,
             IsPlaying = source.IsPlaying,
@@ -1322,6 +1800,270 @@ public sealed partial class EditorWindowScene
     {
         ReplacePixelStudioDocument(ClonePixelStudioState(snapshot));
         StopPixelPlayback();
+    }
+
+    private void SavePixelStudioDocument()
+    {
+        string? documentPath = _currentPixelDocumentPath;
+        if (string.IsNullOrWhiteSpace(documentPath))
+        {
+            SavePixelStudioDocumentAs();
+            return;
+        }
+
+        try
+        {
+            string? directory = Path.GetDirectoryName(documentPath);
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            string json = JsonSerializer.Serialize(CreateProjectDocumentSnapshot(), PixelStudioDocumentSerializerOptions);
+            File.WriteAllText(documentPath, json);
+            _currentPixelDocumentPath = documentPath;
+            RefreshPixelStudioView($"Saved {EditorBranding.PixelToolName} file {Path.GetFileName(documentPath)}.");
+        }
+        catch (Exception ex)
+        {
+            RefreshPixelStudioView($"Could not save {EditorBranding.PixelToolName} artwork: {ex.Message}");
+        }
+    }
+
+    private void SavePixelStudioDocumentAs()
+    {
+        string initialDirectory = ResolvePixelStudioDocumentDirectory();
+        string suggestedFileName = BuildSuggestedPixelStudioFileName();
+        string? documentPath = PixelStudioDocumentFilePicker.ShowSaveDialog(initialDirectory, suggestedFileName);
+        if (string.IsNullOrWhiteSpace(documentPath))
+        {
+            RefreshPixelStudioView("Save cancelled.");
+            return;
+        }
+
+        _currentPixelDocumentPath = EnsurePixelStudioDocumentExtension(documentPath);
+        _pixelStudio.DocumentName = Path.GetFileNameWithoutExtension(_currentPixelDocumentPath);
+        SavePixelStudioDocument();
+    }
+
+    private void OpenPixelStudioDocument()
+    {
+        string initialDirectory = ResolvePixelStudioDocumentDirectory();
+        string? documentPath = PixelStudioDocumentFilePicker.ShowOpenDialog(initialDirectory);
+        if (string.IsNullOrWhiteSpace(documentPath))
+        {
+            RefreshPixelStudioView("Open cancelled.");
+            return;
+        }
+
+        if (TryLoadPixelStudioDocument(documentPath, out string status))
+        {
+            RefreshPixelStudioView(status, rebuildLayout: true);
+            return;
+        }
+
+        RefreshPixelStudioView(status);
+    }
+
+    private bool TryLoadPixelStudioDocument(string documentPath, out string status)
+    {
+        if (!File.Exists(documentPath))
+        {
+            status = $"Could not find {Path.GetFileName(documentPath)}.";
+            return false;
+        }
+
+        try
+        {
+            string json = File.ReadAllText(documentPath);
+            PixelStudioProjectDocument? document = JsonSerializer.Deserialize<PixelStudioProjectDocument>(json, PixelStudioDocumentSerializerOptions);
+            if (document is null)
+            {
+                status = $"Could not load {EditorBranding.PixelToolName} artwork from {Path.GetFileName(documentPath)}.";
+                return false;
+            }
+
+            ReplacePixelStudioDocument(CreatePixelStudioState(document));
+            _currentPixelDocumentPath = documentPath;
+            _pixelStudio.DocumentName = Path.GetFileNameWithoutExtension(documentPath);
+            _pixelUndoStack.Clear();
+            _pixelRedoStack.Clear();
+            status = $"Opened {EditorBranding.PixelToolName} file {Path.GetFileName(documentPath)}.";
+            return true;
+        }
+        catch (Exception ex)
+        {
+            status = $"Could not load {EditorBranding.PixelToolName} artwork: {ex.Message}";
+            return false;
+        }
+    }
+
+    private PixelStudioProjectDocument CreateProjectDocumentSnapshot()
+    {
+        return new PixelStudioProjectDocument
+        {
+            DocumentName = _pixelStudio.DocumentName,
+            CanvasWidth = _pixelStudio.CanvasWidth,
+            CanvasHeight = _pixelStudio.CanvasHeight,
+            DesiredZoom = _pixelStudio.DesiredZoom,
+            CanvasPanX = _pixelStudio.CanvasPanX,
+            CanvasPanY = _pixelStudio.CanvasPanY,
+            ShowGrid = _pixelStudio.ShowGrid,
+            FramesPerSecond = _pixelStudio.FramesPerSecond,
+            IsPlaying = false,
+            PreviewFrameIndex = _pixelStudio.PreviewFrameIndex,
+            ActiveTool = _pixelStudio.ActiveTool,
+            ActivePaletteIndex = _pixelStudio.ActivePaletteIndex,
+            ActiveFrameIndex = _pixelStudio.ActiveFrameIndex,
+            ActiveLayerIndex = _pixelStudio.ActiveLayerIndex,
+            Palette = _pixelStudio.Palette.Select(ToPaletteColorSetting).ToList(),
+            Frames = _pixelStudio.Frames.Select(frame => new PixelStudioProjectFrameDocument
+            {
+                Name = frame.Name,
+                Layers = frame.Layers.Select(layer => new PixelStudioProjectLayerDocument
+                {
+                    Name = layer.Name,
+                    IsVisible = layer.IsVisible,
+                    Pixels = layer.Pixels.ToArray()
+                }).ToList()
+            }).ToList()
+        };
+    }
+
+    private static PixelStudioState CreatePixelStudioState(PixelStudioProjectDocument document)
+    {
+        int width = Math.Clamp(document.CanvasWidth, 1, 512);
+        int height = Math.Clamp(document.CanvasHeight, 1, 512);
+        int pixelCount = width * height;
+        List<ThemeColor> palette = document.Palette.Count > 0
+            ? document.Palette.Select(ToThemeColor).ToList()
+            : CreateDefaultPalette();
+
+        List<PixelStudioFrameState> frames = document.Frames
+            .Select(frame => new PixelStudioFrameState
+            {
+                Name = string.IsNullOrWhiteSpace(frame.Name) ? "Frame" : frame.Name,
+                Layers = frame.Layers.Select(layer => new PixelStudioLayerState
+                {
+                    Name = string.IsNullOrWhiteSpace(layer.Name) ? "Layer" : layer.Name,
+                    IsVisible = layer.IsVisible,
+                    Pixels = NormalizePixelBuffer(layer.Pixels, pixelCount, palette.Count)
+                }).ToList()
+            })
+            .Where(frame => frame.Layers.Count > 0)
+            .ToList();
+
+        if (frames.Count == 0)
+        {
+            frames.Add(new PixelStudioFrameState
+            {
+                Name = "Frame 1",
+                Layers =
+                [
+                    new PixelStudioLayerState
+                    {
+                        Name = "Layer 1",
+                        Pixels = CreateBlankPixels(width, height)
+                    }
+                ]
+            });
+        }
+
+        return new PixelStudioState
+        {
+            DocumentName = string.IsNullOrWhiteSpace(document.DocumentName) ? "Blank Sprite" : document.DocumentName,
+            CanvasWidth = width,
+            CanvasHeight = height,
+            DesiredZoom = Math.Clamp(document.DesiredZoom, 2, 96),
+            CanvasPanX = document.CanvasPanX,
+            CanvasPanY = document.CanvasPanY,
+            ShowGrid = document.ShowGrid,
+            FramesPerSecond = Math.Clamp(document.FramesPerSecond, 1, 24),
+            IsPlaying = false,
+            PreviewFrameIndex = document.PreviewFrameIndex,
+            ActiveTool = document.ActiveTool,
+            ActivePaletteIndex = document.ActivePaletteIndex,
+            ActiveFrameIndex = document.ActiveFrameIndex,
+            ActiveLayerIndex = document.ActiveLayerIndex,
+            Palette = palette,
+            Frames = frames
+        };
+    }
+
+    private static int[] NormalizePixelBuffer(IReadOnlyList<int> pixels, int pixelCount, int paletteCount)
+    {
+        int[] normalized = new int[pixelCount];
+        Array.Fill(normalized, -1);
+        int length = Math.Min(pixelCount, pixels.Count);
+        for (int index = 0; index < length; index++)
+        {
+            int paletteIndex = pixels[index];
+            normalized[index] = paletteIndex >= 0
+                ? Math.Clamp(paletteIndex, 0, Math.Max(paletteCount - 1, 0))
+                : -1;
+        }
+
+        return normalized;
+    }
+
+    private string ResolvePixelStudioDocumentDirectory()
+    {
+        if (!string.IsNullOrWhiteSpace(_currentPixelDocumentPath))
+        {
+            string? currentDirectory = Path.GetDirectoryName(_currentPixelDocumentPath);
+            if (!string.IsNullOrWhiteSpace(currentDirectory) && Directory.Exists(currentDirectory))
+            {
+                return currentDirectory;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(_lastProjectPath) && Directory.Exists(_lastProjectPath))
+        {
+            return _lastProjectPath;
+        }
+
+        if (Directory.Exists(_projectLibraryPath))
+        {
+            return _projectLibraryPath;
+        }
+
+        return Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+    }
+
+    private string BuildSuggestedPixelStudioFileName()
+    {
+        string name = SanitizePixelStudioDocumentName(_pixelStudio.DocumentName).Replace(' ', '-');
+        return string.IsNullOrWhiteSpace(name) ? "untitled-sprite.kearu" : $"{name}.kearu";
+    }
+
+    private static string EnsurePixelStudioDocumentExtension(string path)
+    {
+        string extension = Path.GetExtension(path);
+        return string.IsNullOrWhiteSpace(extension)
+            ? $"{path}.kearu"
+            : path;
+    }
+
+    private static string SanitizePixelStudioDocumentName(string value)
+    {
+        char[] invalidCharacters = Path.GetInvalidFileNameChars();
+        string sanitized = new string(value.Where(character => !invalidCharacters.Contains(character)).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(sanitized) ? "untitled-sprite" : sanitized;
+    }
+
+    private static string? FindPreferredPixelStudioDocument(string projectDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(projectDirectory) || !Directory.Exists(projectDirectory))
+        {
+            return null;
+        }
+
+        return Directory.EnumerateFiles(projectDirectory, "*.kearu", SearchOption.TopDirectoryOnly)
+            .OrderByDescending(File.GetLastWriteTimeUtc)
+            .FirstOrDefault()
+            ?? Directory.EnumerateFiles(projectDirectory, "*.json", SearchOption.TopDirectoryOnly)
+                .OrderByDescending(File.GetLastWriteTimeUtc)
+                .FirstOrDefault();
     }
 
     private static PixelStudioFrameState CloneFrameState(PixelStudioFrameState frame)
@@ -1501,13 +2243,16 @@ public sealed partial class EditorWindowScene
     private void MarkCurrentPaletteAsUnsaved()
     {
         _activePixelPaletteId = null;
+        _selectedPixelPaletteId = DefaultPaletteSelectionId;
     }
 
     private string GetActivePaletteDisplayName()
     {
         if (string.IsNullOrWhiteSpace(_activePixelPaletteId))
         {
-            return "Current Palette";
+            return string.Equals(_selectedPixelPaletteId, DefaultPaletteSelectionId, StringComparison.Ordinal)
+                ? "Default Palette"
+                : "Current Palette";
         }
 
         return _savedPixelPalettes
@@ -1517,11 +2262,24 @@ public sealed partial class EditorWindowScene
 
     private void ApplySavedPalette(SavedPixelPalette palette)
     {
-        ReplaceCurrentPaletteColors(palette.Colors.Select(ToThemeColor).ToList(), remapArtwork: true);
+        ReplaceCurrentPaletteColors(palette.Colors.Select(ToThemeColor).ToList(), remapArtwork: false);
         _activePixelPaletteId = palette.Id;
         _selectedPixelPaletteId = palette.Id;
         _paletteRenameActive = false;
+        _layerRenameActive = false;
         _paletteRenameBuffer = palette.Name;
+        ClosePixelContextMenu();
+    }
+
+    private void ApplyDefaultPalette()
+    {
+        ReplaceCurrentPaletteColors(CreateDefaultPalette(), remapArtwork: false);
+        _activePixelPaletteId = null;
+        _selectedPixelPaletteId = DefaultPaletteSelectionId;
+        _paletteRenameActive = false;
+        _layerRenameActive = false;
+        _paletteRenameBuffer = "Default Palette";
+        ClosePixelContextMenu();
     }
 
     private SavedPixelPalette? GetSelectedSavedPalette()
@@ -1571,6 +2329,13 @@ public sealed partial class EditorWindowScene
         char[] invalidCharacters = Path.GetInvalidFileNameChars();
         string sanitized = new string(value.Where(character => !invalidCharacters.Contains(character)).ToArray()).Trim();
         return string.IsNullOrWhiteSpace(sanitized) ? "Palette" : sanitized;
+    }
+
+    private static string SanitizeLayerName(string value)
+    {
+        char[] invalidCharacters = Path.GetInvalidFileNameChars();
+        string sanitized = new string(value.Where(character => !invalidCharacters.Contains(character)).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(sanitized) ? "Layer" : sanitized;
     }
 
     private void ReplaceSavedPalette(SavedPixelPalette palette)

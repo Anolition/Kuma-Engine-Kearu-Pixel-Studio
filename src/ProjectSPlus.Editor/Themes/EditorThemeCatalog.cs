@@ -4,19 +4,36 @@ public static class EditorThemeCatalog
 {
     public const string DarkThemeName = "ProjectSPlus.Dark";
     public const string LightThemeName = "ProjectSPlus.Light";
+    public const string KumaThemeName = "ProjectSPlus.Kuma";
 
     public static EditorTheme GetByName(string? themeName)
     {
-        return string.Equals(themeName, LightThemeName, StringComparison.OrdinalIgnoreCase)
-            ? CreateLightTheme()
-            : CreateDarkTheme();
+        if (string.Equals(themeName, LightThemeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateLightTheme();
+        }
+
+        if (string.Equals(themeName, KumaThemeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateKumaTheme();
+        }
+
+        return CreateKumaTheme();
     }
 
     public static EditorTheme Toggle(EditorTheme theme)
     {
-        return string.Equals(theme.Name, DarkThemeName, StringComparison.OrdinalIgnoreCase)
-            ? CreateLightTheme()
-            : CreateDarkTheme();
+        if (string.Equals(theme.Name, DarkThemeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateLightTheme();
+        }
+
+        if (string.Equals(theme.Name, LightThemeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateKumaTheme();
+        }
+
+        return CreateDarkTheme();
     }
 
     private static EditorTheme CreateDarkTheme()
@@ -52,6 +69,24 @@ public static class EditorThemeCatalog
             StatusBar = new ThemeColor(0.80f, 0.83f, 0.88f),
             Divider = new ThemeColor(0.63f, 0.68f, 0.75f),
             Accent = new ThemeColor(0.19f, 0.36f, 0.70f)
+        };
+    }
+
+    private static EditorTheme CreateKumaTheme()
+    {
+        return new EditorTheme
+        {
+            Name = KumaThemeName,
+            Background = new ThemeColor(0.16f, 0.12f, 0.09f),
+            MenuBar = new ThemeColor(0.28f, 0.21f, 0.15f),
+            SidePanel = new ThemeColor(0.34f, 0.25f, 0.18f),
+            Workspace = new ThemeColor(0.41f, 0.31f, 0.22f),
+            TabStrip = new ThemeColor(0.30f, 0.23f, 0.17f),
+            TabActive = new ThemeColor(0.32f, 0.47f, 0.31f),
+            TabInactive = new ThemeColor(0.46f, 0.35f, 0.25f),
+            StatusBar = new ThemeColor(0.22f, 0.17f, 0.12f),
+            Divider = new ThemeColor(0.56f, 0.44f, 0.31f),
+            Accent = new ThemeColor(0.47f, 0.66f, 0.39f)
         };
     }
 }

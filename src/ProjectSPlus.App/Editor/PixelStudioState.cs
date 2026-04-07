@@ -12,6 +12,10 @@ public sealed class PixelStudioState
 
     public int DesiredZoom { get; set; } = 24;
 
+    public float CanvasPanX { get; set; }
+
+    public float CanvasPanY { get; set; }
+
     public bool ShowGrid { get; set; } = true;
 
     public int FramesPerSecond { get; set; } = 8;

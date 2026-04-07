@@ -10,6 +10,8 @@ public sealed class PixelStudioLayoutSnapshot
 
     public required UiRect CanvasPanelRect { get; init; }
 
+    public required UiRect CanvasClipRect { get; init; }
+
     public required UiRect CanvasViewportRect { get; init; }
 
     public required UiRect LeftSplitterRect { get; init; }
@@ -58,7 +60,11 @@ public sealed class PixelStudioLayoutSnapshot
 
     public UiRect? PaletteRenameFieldRect { get; init; }
 
+    public UiRect? LayerRenameFieldRect { get; init; }
+
     public UiRect? PalettePromptRect { get; init; }
+
+    public UiRect? ContextMenuRect { get; init; }
 
     public required int CanvasCellSize { get; init; }
 
@@ -73,6 +79,8 @@ public sealed class PixelStudioLayoutSnapshot
     public required IReadOnlyList<ActionRect<PixelStudioAction>> PaletteLibraryButtons { get; init; }
 
     public required IReadOnlyList<ActionRect<PixelStudioAction>> PalettePromptButtons { get; init; }
+
+    public required IReadOnlyList<ActionRect<PixelStudioContextMenuAction>> ContextMenuButtons { get; init; }
 
     public required IReadOnlyList<ActionRect<PixelStudioAction>> LayerButtons { get; init; }
 
@@ -89,4 +97,59 @@ public sealed class PixelStudioLayoutSnapshot
     public required IReadOnlyList<IndexedRect> FrameRows { get; init; }
 
     public required IReadOnlyList<IndexedRect> CanvasCells { get; init; }
+
+    public PixelStudioLayoutSnapshot WithCanvasViewport(UiRect canvasViewportRect)
+    {
+        return new PixelStudioLayoutSnapshot
+        {
+            HeaderRect = HeaderRect,
+            CommandBarRect = CommandBarRect,
+            ToolbarRect = ToolbarRect,
+            CanvasPanelRect = CanvasPanelRect,
+            CanvasClipRect = CanvasClipRect,
+            CanvasViewportRect = canvasViewportRect,
+            LeftSplitterRect = LeftSplitterRect,
+            RightSplitterRect = RightSplitterRect,
+            LeftCollapseHandleRect = LeftCollapseHandleRect,
+            RightCollapseHandleRect = RightCollapseHandleRect,
+            PalettePanelRect = PalettePanelRect,
+            LayersPanelRect = LayersPanelRect,
+            TimelinePanelRect = TimelinePanelRect,
+            ActiveColorRect = ActiveColorRect,
+            PlaybackPreviewRect = PlaybackPreviewRect,
+            PaletteSwatchViewportRect = PaletteSwatchViewportRect,
+            PaletteSwatchScrollTrackRect = PaletteSwatchScrollTrackRect,
+            PaletteSwatchScrollThumbRect = PaletteSwatchScrollThumbRect,
+            SavedPaletteViewportRect = SavedPaletteViewportRect,
+            SavedPaletteScrollTrackRect = SavedPaletteScrollTrackRect,
+            SavedPaletteScrollThumbRect = SavedPaletteScrollThumbRect,
+            LayerListViewportRect = LayerListViewportRect,
+            LayerScrollTrackRect = LayerScrollTrackRect,
+            LayerScrollThumbRect = LayerScrollThumbRect,
+            FrameListViewportRect = FrameListViewportRect,
+            FrameScrollTrackRect = FrameScrollTrackRect,
+            FrameScrollThumbRect = FrameScrollThumbRect,
+            PaletteLibraryRect = PaletteLibraryRect,
+            PaletteRenameFieldRect = PaletteRenameFieldRect,
+            LayerRenameFieldRect = LayerRenameFieldRect,
+            PalettePromptRect = PalettePromptRect,
+            ContextMenuRect = ContextMenuRect,
+            CanvasCellSize = CanvasCellSize,
+            ToolButtons = ToolButtons,
+            DocumentButtons = DocumentButtons,
+            CanvasButtons = CanvasButtons,
+            PaletteButtons = PaletteButtons,
+            PaletteLibraryButtons = PaletteLibraryButtons,
+            PalettePromptButtons = PalettePromptButtons,
+            ContextMenuButtons = ContextMenuButtons,
+            LayerButtons = LayerButtons,
+            TimelineButtons = TimelineButtons,
+            PaletteSwatches = PaletteSwatches,
+            SavedPaletteRows = SavedPaletteRows,
+            LayerRows = LayerRows,
+            LayerVisibilityButtons = LayerVisibilityButtons,
+            FrameRows = FrameRows,
+            CanvasCells = CanvasCells
+        };
+    }
 }

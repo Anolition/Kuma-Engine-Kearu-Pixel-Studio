@@ -12,6 +12,10 @@ public sealed class PixelStudioViewState
 
     public int Zoom { get; set; }
 
+    public float CanvasPanX { get; set; }
+
+    public float CanvasPanY { get; set; }
+
     public bool ShowGrid { get; set; }
 
     public int FramesPerSecond { get; set; }
@@ -38,6 +42,8 @@ public sealed class PixelStudioViewState
 
     public bool PaletteRenameActive { get; set; }
 
+    public bool LayerRenameActive { get; set; }
+
     public bool PromptForPaletteGenerationAfterImport { get; set; } = true;
 
     public float ToolsPanelPreferredWidth { get; set; } = 164;
@@ -57,6 +63,16 @@ public sealed class PixelStudioViewState
     public int FrameScrollRow { get; set; }
 
     public string PaletteRenameBuffer { get; set; } = string.Empty;
+
+    public string LayerRenameBuffer { get; set; } = string.Empty;
+
+    public bool ContextMenuVisible { get; set; }
+
+    public float ContextMenuX { get; set; }
+
+    public float ContextMenuY { get; set; }
+
+    public IReadOnlyList<PixelStudioContextMenuItemView> ContextMenuItems { get; set; } = [];
 
     public IReadOnlyList<ThemeColor> Palette { get; set; } = [];
 

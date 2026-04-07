@@ -1,4 +1,5 @@
 using AppTextRenderer = ProjectSPlus.App.Rendering.TextRenderer;
+using AppImageRenderer = ProjectSPlus.App.Rendering.ImageRenderer;
 using ProjectSPlus.Core.Configuration;
 using ProjectSPlus.Editor.Shell;
 using ProjectSPlus.Editor.Themes;
@@ -18,6 +19,7 @@ public sealed class EditorShellRenderer : IDisposable
     private const float PixelPanelGap = 10f;
     private const float CollapsedPanelThreshold = 40f;
     private const float TextTexturePadding = 6f;
+    private static readonly bool ShowTextDebugBounds = false;
 
     private enum UiTextAlignment
     {
@@ -25,11 +27,12 @@ public sealed class EditorShellRenderer : IDisposable
         Center
     }
 
-    private readonly record struct TextMeasurement(float Width, float Ascent, float Descent, float TextHeight, float BoundsY);
+    private readonly record struct TextMeasurement(float Width, float Ascent, float Descent, float TextHeight);
 
     private readonly GL _gl;
     private readonly EditorShell _shell;
     private readonly AppTextRenderer _textRenderer;
+    private readonly AppImageRenderer _imageRenderer;
 
     private EditorTheme _theme;
     private EditorTypography _typography;
@@ -39,6 +42,7 @@ public sealed class EditorShellRenderer : IDisposable
     private bool _hasResolvedFontFamily;
     private int _width;
     private int _height;
+    private readonly string _brandingImagePath = Path.Combine(AppContext.BaseDirectory, "Assets", "Branding", "KumaEngineLogo.png");
 
     public EditorShellRenderer(GL gl, EditorShell shell, EditorTheme theme, EditorTypography typography, EditorUiState uiState)
     {
@@ -48,6 +52,7 @@ public sealed class EditorShellRenderer : IDisposable
         _typography = typography;
         _uiState = uiState;
         _textRenderer = new AppTextRenderer(gl);
+        _imageRenderer = new AppImageRenderer(gl);
     }
 
     public void UpdateTheme(EditorTheme theme)
@@ -93,6 +98,7 @@ public sealed class EditorShellRenderer : IDisposable
         _height = Math.Max(height, 1);
         _gl.Viewport(0, 0, (uint)_width, (uint)_height);
         _textRenderer.Resize(_width, _height);
+        _imageRenderer.Resize(_width, _height);
     }
 
     public void Render()
@@ -118,6 +124,7 @@ public sealed class EditorShellRenderer : IDisposable
 
     public void Dispose()
     {
+        _imageRenderer.Dispose();
         _textRenderer.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -139,16 +146,6 @@ public sealed class EditorShellRenderer : IDisposable
         DrawUiRect(_layoutSnapshot.RightSplitterRect, Blend(_theme.Divider, _theme.Background, 0.18f));
         DrawUiRect(_layoutSnapshot.LeftCollapseHandleRect, Blend(_theme.TabInactive, _theme.Accent, 0.22f));
         DrawUiRect(_layoutSnapshot.RightCollapseHandleRect, Blend(_theme.TabInactive, _theme.Accent, 0.22f));
-
-        if (IsCollapsedPanel(_layoutSnapshot.LeftPanelRect))
-        {
-            DrawUiRect(new UiRect(_layoutSnapshot.LeftPanelRect.X + 6, _layoutSnapshot.LeftPanelRect.Y + 10, Math.Max(_layoutSnapshot.LeftPanelRect.Width - 12, 10), 24), _theme.TabActive);
-        }
-
-        if (IsCollapsedPanel(_layoutSnapshot.RightPanelRect))
-        {
-            DrawUiRect(new UiRect(_layoutSnapshot.RightPanelRect.X + 6, _layoutSnapshot.RightPanelRect.Y + 10, Math.Max(_layoutSnapshot.RightPanelRect.Width - 12, 10), 24), _theme.TabActive);
-        }
 
         foreach (IndexedRect row in _layoutSnapshot.LeftPanelRecentProjectRows)
         {
@@ -318,6 +315,11 @@ public sealed class EditorShellRenderer : IDisposable
                 DrawUiRect(layout.PaletteRenameFieldRect.Value, _theme.TabInactive);
             }
 
+            if (layout.ContextMenuRect is not null)
+            {
+                DrawUiRect(layout.ContextMenuRect.Value, Blend(_theme.MenuBar, _theme.Workspace, 0.18f));
+            }
+
             foreach (IndexedRect row in layout.SavedPaletteRows)
             {
                 bool isDefaultPaletteRow = row.Index < 0;
@@ -368,22 +370,35 @@ public sealed class EditorShellRenderer : IDisposable
 
         ThemeColor checkerLight = Blend(_theme.Workspace, new ThemeColor(0.90f, 0.92f, 0.95f), 0.18f);
         ThemeColor checkerDark = Blend(_theme.Workspace, new ThemeColor(0.08f, 0.09f, 0.12f), 0.22f);
-        DrawUiRect(layout.CanvasViewportRect, checkerLight);
+        DrawUiRectClipped(layout.CanvasViewportRect, checkerLight, layout.CanvasClipRect);
 
         int canvasWidth = Math.Max(_uiState.PixelStudio.CanvasWidth, 1);
-        for (int index = 0; index < layout.CanvasCells.Count && index < _uiState.PixelStudio.CompositePixels.Count; index++)
+        int canvasHeight = Math.Max(_uiState.PixelStudio.CanvasHeight, 1);
+        int cellSize = Math.Max(layout.CanvasCellSize, 1);
+        for (int y = 0; y < canvasHeight; y++)
         {
-            UiRect rect = layout.CanvasCells[index].Rect;
-            int x = index % canvasWidth;
-            int y = index / canvasWidth;
-            ThemeColor cellColor = _uiState.PixelStudio.CompositePixels[index]
-                ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
-            DrawUiRect(rect, cellColor);
-
-            if (_uiState.PixelStudio.ShowGrid && rect.Width >= 10 && rect.Height >= 10)
+            for (int x = 0; x < canvasWidth; x++)
             {
-                DrawUiRect(new UiRect(rect.X + rect.Width - 1, rect.Y, 1, rect.Height), _theme.Divider);
-                DrawUiRect(new UiRect(rect.X, rect.Y + rect.Height - 1, rect.Width, 1), _theme.Divider);
+                int index = (y * canvasWidth) + x;
+                if (index >= _uiState.PixelStudio.CompositePixels.Count)
+                {
+                    break;
+                }
+
+                UiRect rect = new(
+                    layout.CanvasViewportRect.X + (x * cellSize),
+                    layout.CanvasViewportRect.Y + (y * cellSize),
+                    cellSize,
+                    cellSize);
+                ThemeColor cellColor = _uiState.PixelStudio.CompositePixels[index]
+                    ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
+                DrawUiRectClipped(rect, cellColor, layout.CanvasClipRect);
+
+                if (_uiState.PixelStudio.ShowGrid && rect.Width >= 10 && rect.Height >= 10)
+                {
+                    DrawUiRectClipped(new UiRect(rect.X + rect.Width - 1, rect.Y, 1, rect.Height), _theme.Divider, layout.CanvasClipRect);
+                    DrawUiRectClipped(new UiRect(rect.X, rect.Y + rect.Height - 1, rect.Width, 1), _theme.Divider, layout.CanvasClipRect);
+                }
             }
         }
 
@@ -399,6 +414,11 @@ public sealed class EditorShellRenderer : IDisposable
         {
             bool visible = button.Index < _uiState.PixelStudio.Layers.Count && _uiState.PixelStudio.Layers[button.Index].IsVisible;
             DrawUiRect(button.Rect, visible ? _theme.TabActive : _theme.TabInactive);
+        }
+
+        if (layout.LayerRenameFieldRect is not null)
+        {
+            DrawUiRect(layout.LayerRenameFieldRect.Value, _theme.TabInactive);
         }
 
         foreach (IndexedRect frame in layout.FrameRows)
@@ -529,6 +549,12 @@ public sealed class EditorShellRenderer : IDisposable
     private void DrawMenuLogo()
     {
         DrawUiRect(_layoutSnapshot!.MenuLogoRect, _theme.TabInactive);
+        if (File.Exists(_brandingImagePath))
+        {
+            _imageRenderer.DrawImage(_brandingImagePath, _layoutSnapshot.MenuLogoRect.X + 6, _layoutSnapshot.MenuLogoRect.Y + 4, 40, Math.Max(_layoutSnapshot.MenuLogoRect.Height - 8, 18));
+            return;
+        }
+
         DrawUiRect(new UiRect(_layoutSnapshot.MenuLogoRect.X + 8, _layoutSnapshot.MenuLogoRect.Y + 8, 22, 22), _theme.Accent);
         DrawUiRect(new UiRect(_layoutSnapshot.MenuLogoRect.X + 14, _layoutSnapshot.MenuLogoRect.Y + 14, 10, 10), _theme.Background);
         DrawUiRect(new UiRect(_layoutSnapshot.MenuLogoRect.X + 20, _layoutSnapshot.MenuLogoRect.Y + 20, 14, 14), _theme.Accent);
@@ -564,7 +590,9 @@ public sealed class EditorShellRenderer : IDisposable
             DrawCenteredTextInRect(button.Id, menuFont, menuText, button.Rect, 8, 6);
         }
 
-        DrawTextInRect("Project S+", titleFont, menuText, _layoutSnapshot.MenuLogoRect, 14, 6);
+        float logoMidY = _layoutSnapshot.MenuLogoRect.Y + (_layoutSnapshot.MenuLogoRect.Height * 0.5f);
+        DrawTextInRect("Kuma", titleFont, menuText, new UiRect(_layoutSnapshot.MenuLogoRect.X, _layoutSnapshot.MenuLogoRect.Y - 1, _layoutSnapshot.MenuLogoRect.Width, Math.Max(logoMidY - _layoutSnapshot.MenuLogoRect.Y + 2, 0)), 54, 3);
+        DrawTextInRect("Engine", bodyFont, menuText, new UiRect(_layoutSnapshot.MenuLogoRect.X, logoMidY - 1, _layoutSnapshot.MenuLogoRect.Width, Math.Max((_layoutSnapshot.MenuLogoRect.Y + _layoutSnapshot.MenuLogoRect.Height) - logoMidY + 2, 0)), 54, 2);
 
         foreach (NamedRect tab in _layoutSnapshot.TabButtons)
         {
@@ -616,22 +644,23 @@ public sealed class EditorShellRenderer : IDisposable
         UiRect leftPanel = _layoutSnapshot!.LeftPanelRect;
         if (IsCollapsedPanel(leftPanel))
         {
-            DrawCenteredTextInRect("P", titleFont, bodyText, new UiRect(leftPanel.X, leftPanel.Y + 8, leftPanel.Width, 28), 2, 2);
+            DrawCenteredTextInRect("P", titleFont, bodyText, leftPanel, 2, 2);
         }
         else
         {
-            DrawTextInRect("Projects", titleFont, bodyText, _layoutSnapshot.LeftPanelHeaderRect, 12, 7);
+            UiRect leftHeaderTitleRect = GetHeaderTitleRect(_layoutSnapshot.LeftPanelHeaderRect, _layoutSnapshot.LeftCollapseHandleRect);
+            DrawTextInRect("Projects", titleFont, bodyText, leftHeaderTitleRect, 0, 7);
             UiRect leftBody = _layoutSnapshot.LeftPanelBodyRect;
-            DrawTextInRect("Project Library", statusFont, bodyText, new UiRect(leftBody.X, leftBody.Y, leftBody.Width, 18), 0, 0);
-            DrawTextInRect(TrimPath(_uiState.ProjectLibraryPath, leftBody.Width >= 220 ? 34 : 24), bodyFont, bodyText, new UiRect(leftBody.X, leftBody.Y + 22, leftBody.Width, 20), 0, 0);
+            DrawTextInRect("Project Library", statusFont, bodyText, new UiRect(leftBody.X, leftBody.Y + 6, leftBody.Width, 18), 0, 0);
+            DrawTextInRect(TrimPath(_uiState.ProjectLibraryPath, leftBody.Width >= 220 ? 34 : 24), bodyFont, bodyText, new UiRect(leftBody.X, leftBody.Y + 28, leftBody.Width, 20), 0, 0);
             if (leftBody.Width >= 180)
             {
-                DrawTextInRect("Recent Projects", statusFont, bodyText, new UiRect(leftBody.X, leftBody.Y + 68, leftBody.Width, 18), 0, 0);
+                DrawTextInRect("Recent Projects", statusFont, bodyText, new UiRect(leftBody.X, leftBody.Y + 84, leftBody.Width, 18), 0, 0);
             }
 
             if (_layoutSnapshot.LeftPanelRecentProjectRows.Count == 0)
             {
-                DrawTextInRect("No recent projects yet.", statusFont, bodyText, new UiRect(leftBody.X, leftBody.Y + 100, leftBody.Width, 18), 0, 0);
+                DrawTextInRect("No recent projects yet.", statusFont, bodyText, new UiRect(leftBody.X, leftBody.Y + 116, leftBody.Width, 18), 0, 0);
             }
             else
             {
@@ -652,11 +681,12 @@ public sealed class EditorShellRenderer : IDisposable
         UiRect rightPanel = _layoutSnapshot.RightPanelRect;
         if (IsCollapsedPanel(rightPanel))
         {
-            DrawCenteredTextInRect("I", titleFont, bodyText, new UiRect(rightPanel.X, rightPanel.Y + 8, rightPanel.Width, 28), 2, 2);
+            DrawCenteredTextInRect("I", titleFont, bodyText, rightPanel, 2, 2);
             return;
         }
 
-        DrawTextInRect("Inspector", titleFont, bodyText, _layoutSnapshot.RightPanelHeaderRect, 12, 7);
+        UiRect rightHeaderTitleRect = GetHeaderTitleRect(_layoutSnapshot.RightPanelHeaderRect, _layoutSnapshot.RightCollapseHandleRect);
+        DrawTextInRect("Inspector", titleFont, bodyText, rightHeaderTitleRect, 0, 7);
         UiRect rightBody = _layoutSnapshot.RightPanelBodyRect;
         DrawTextInRect("Selected View", statusFont, bodyText, new UiRect(rightBody.X, rightBody.Y, rightBody.Width, 18), 0, 0);
         string currentTab = _uiState.Tabs.FirstOrDefault(tab => tab.Id == _uiState.SelectedTabId)?.Title ?? "Home";
@@ -716,7 +746,7 @@ public sealed class EditorShellRenderer : IDisposable
         {
             DrawTextInRect("Home", titleFont, bodyText, GetPixelPanelHeaderRect(_layoutSnapshot.HomeHeroPanelRect.Value), 12, 7);
             UiRect heroBody = GetPixelPanelBodyRect(_layoutSnapshot.HomeHeroPanelRect.Value);
-            DrawTextInRect("Start a project, jump into Pixel Studio, or tune the editor before the larger engine tools arrive.", bodyFont, bodyText, new UiRect(heroBody.X, heroBody.Y + 8, heroBody.Width, 22), 0, 0);
+            DrawTextInRect($"Start a project, jump into {EditorBranding.PixelToolName}, or tune the editor before the larger engine tools arrive.", bodyFont, bodyText, new UiRect(heroBody.X, heroBody.Y + 8, heroBody.Width, 22), 0, 0);
             DrawTextInRect("Everything on this page now flows through the shared panel and scrolling system used across the app.", statusFont, bodyText, new UiRect(heroBody.X, heroBody.Y + 40, heroBody.Width, 20), 0, 0);
         }
 
@@ -728,7 +758,7 @@ public sealed class EditorShellRenderer : IDisposable
         IReadOnlyList<(string Title, string Desc)> cardText =
         [
             ("New Project Slot", "Create a basic project folder in your library."),
-            ("Pixel Studio", "Open the sprite and animation workspace."),
+            (EditorBranding.PixelToolName, "Open the sprite and animation workspace."),
             ("Projects", "View recent projects and your library path."),
             ("Preferences", "Edit theme, text, and shortcuts.")
         ];
@@ -776,9 +806,9 @@ public sealed class EditorShellRenderer : IDisposable
     {
         if (_layoutSnapshot!.ProjectsFormPanelRect is not null)
         {
-            DrawTextInRect("Project Setup", titleFont, bodyText, GetPixelPanelHeaderRect(_layoutSnapshot.ProjectsFormPanelRect.Value), 12, 7);
+            DrawTextInRect("Project Setup", titleFont, bodyText, GetPixelPanelHeaderRect(_layoutSnapshot.ProjectsFormPanelRect.Value), 12, 9);
             UiRect formBody = GetPixelPanelBodyRect(_layoutSnapshot.ProjectsFormPanelRect.Value);
-            DrawTextInRect("Name a project, choose where it should live, and create the first folder structure from here.", statusFont, bodyText, new UiRect(formBody.X, formBody.Y, formBody.Width, 20), 0, 0);
+            DrawTextInRect("Name a project, choose where it should live, and create the first folder structure from here.", statusFont, bodyText, new UiRect(formBody.X, formBody.Y + 8, formBody.Width, 20), 0, 0);
         }
 
         ActionRect<ProjectFormAction> nameField = _layoutSnapshot.ProjectFormActions.First(action => action.Action == ProjectFormAction.ActivateProjectName);
@@ -788,7 +818,7 @@ public sealed class EditorShellRenderer : IDisposable
         ActionRect<ProjectFormAction> desktopButton = _layoutSnapshot.ProjectFormActions.First(action => action.Action == ProjectFormAction.UseDesktopFolder);
         ActionRect<ProjectFormAction> browseButton = _layoutSnapshot.ProjectFormActions.First(action => action.Action == ProjectFormAction.OpenFolderPicker);
 
-        DrawTextInRect("Project Name", statusFont, bodyText, new UiRect(nameField.Rect.X, nameField.Rect.Y - 18, nameField.Rect.Width, 18), 0, 0);
+        DrawTextInRect("Project Name", statusFont, bodyText, new UiRect(nameField.Rect.X, nameField.Rect.Y - 16, nameField.Rect.Width, 18), 0, 0);
         DrawTextInRect(
             string.IsNullOrWhiteSpace(_uiState.ProjectForm.ProjectName) ? "MyGame" : _uiState.ProjectForm.ProjectName,
             bodyFont,
@@ -797,7 +827,7 @@ public sealed class EditorShellRenderer : IDisposable
             10,
             11);
 
-        DrawTextInRect("Project Library", statusFont, bodyText, new UiRect(pathField.Rect.X, pathField.Rect.Y - 18, pathField.Rect.Width, 18), 0, 0);
+        DrawTextInRect("Project Library", statusFont, bodyText, new UiRect(pathField.Rect.X, pathField.Rect.Y - 16, pathField.Rect.Width, 18), 0, 0);
         DrawTextInRect(
             TrimPath(string.IsNullOrWhiteSpace(_uiState.ProjectForm.ProjectLibraryPath) ? _uiState.ProjectLibraryPath : _uiState.ProjectForm.ProjectLibraryPath, 72),
             bodyFont,
@@ -888,7 +918,7 @@ public sealed class EditorShellRenderer : IDisposable
         if (_layoutSnapshot.PreferencesGeneralPanelRect is not null)
         {
             UiRect generalBody = GetPixelPanelBodyRect(_layoutSnapshot.PreferencesGeneralPanelRect.Value);
-            DrawTextInRect("Aa Bb Cc 123 - Project S+ Editor Sample", bodyFont, bodyText, new UiRect(generalBody.X, generalBody.Y + 92, generalBody.Width, 20), 0, 0);
+            DrawTextInRect($"Aa Bb Cc 123 - {EditorBranding.EngineName} Sample", bodyFont, bodyText, new UiRect(generalBody.X, generalBody.Y + 92, generalBody.Width, 20), 0, 0);
         }
 
         if (_layoutSnapshot.PreferencesShortcutPanelRect is not null)
@@ -941,12 +971,12 @@ public sealed class EditorShellRenderer : IDisposable
         bool toolsCollapsed = IsCollapsedPanel(layout.ToolbarRect);
         bool sidebarCollapsed = IsCollapsedPanel(layout.PalettePanelRect);
 
-        DrawTextInRect("Pixel Studio", titleFont, bodyText, new UiRect(layout.HeaderRect.X + 14, layout.HeaderRect.Y, 132, layout.HeaderRect.Height), 0, 6);
+        DrawTextInRect(EditorBranding.PixelToolName, titleFont, bodyText, new UiRect(layout.HeaderRect.X + 14, layout.HeaderRect.Y, 164, layout.HeaderRect.Height), 0, 6);
         DrawTextInRect(
             $"{pixelStudio.DocumentName} - {pixelStudio.CanvasWidth}x{pixelStudio.CanvasHeight} - {pixelStudio.Frames.Count} frame(s)",
             statusFont,
             statusText,
-            new UiRect(layout.HeaderRect.X + 154, layout.HeaderRect.Y, Math.Max(layout.HeaderRect.Width - 168, 0), layout.HeaderRect.Height),
+            new UiRect(layout.HeaderRect.X + 186, layout.HeaderRect.Y, Math.Max(layout.HeaderRect.Width - 200, 0), layout.HeaderRect.Height),
             0,
             11);
 
@@ -955,7 +985,8 @@ public sealed class EditorShellRenderer : IDisposable
             DrawCenteredTextInRect(GetPixelStudioActionLabel(button.Action), bodyFont, bodyText, button.Rect, 10, 8);
         }
 
-        DrawTextInRect(toolsCollapsed ? "T" : "Tools", titleFont, bodyText, new UiRect(toolsHeaderRect.X + 8, toolsHeaderRect.Y, toolsHeaderRect.Width - 16, toolsHeaderRect.Height), 0, 7);
+        UiRect toolsTitleRect = GetHeaderTitleRect(toolsHeaderRect, layout.LeftCollapseHandleRect);
+        DrawTextInRect(toolsCollapsed ? "T" : "Tools", titleFont, bodyText, toolsTitleRect, 0, 7);
         DrawCenteredTextInRect(toolsCollapsed ? ">" : "<", bodyFont, bodyText, layout.LeftCollapseHandleRect, 2, 2);
         DrawCenteredTextInRect(sidebarCollapsed ? "<" : ">", bodyFont, bodyText, layout.RightCollapseHandleRect, 2, 2);
         foreach (ActionRect<PixelStudioToolKind> toolButton in layout.ToolButtons)
@@ -973,18 +1004,14 @@ public sealed class EditorShellRenderer : IDisposable
             DrawTextInRect("Ctrl+Z undo, Ctrl+Y redo.", statusFont, statusText, new UiRect(canvasBodyRect.X, canvasBodyRect.Y, canvasBodyRect.Width, 18), 0, 0);
         }
 
-        DrawTextInRect(sidebarCollapsed ? "P" : "Palette", titleFont, bodyText, new UiRect(paletteHeaderRect.X + 8, paletteHeaderRect.Y, paletteHeaderRect.Width - 16, paletteHeaderRect.Height), 0, 7);
+        UiRect paletteTitleRect = GetHeaderTitleRect(paletteHeaderRect, layout.RightCollapseHandleRect);
+        DrawTextInRect(sidebarCollapsed ? "P" : "Palette", titleFont, bodyText, paletteTitleRect, 0, 7);
         if (!sidebarCollapsed && layout.PaletteButtons.Count > 0)
         {
-            ActionRect<PixelStudioAction> redMinus = layout.PaletteButtons.First(button => button.Action == PixelStudioAction.DecreaseRed);
-            ActionRect<PixelStudioAction> greenMinus = layout.PaletteButtons.First(button => button.Action == PixelStudioAction.DecreaseGreen);
-            ActionRect<PixelStudioAction> blueMinus = layout.PaletteButtons.First(button => button.Action == PixelStudioAction.DecreaseBlue);
-            ActionRect<PixelStudioAction> addSwatch = layout.PaletteButtons.First(button => button.Action == PixelStudioAction.AddPaletteSwatch);
             float infoX = layout.ActiveColorRect.X + layout.ActiveColorRect.Width + 14;
             float infoWidth = (paletteBodyRect.X + paletteBodyRect.Width) - infoX;
             UiRect activeInfoRect = new(infoX, layout.ActiveColorRect.Y, infoWidth, layout.ActiveColorRect.Height);
             bool showPaletteLabels = paletteBodyRect.Width >= 220;
-            bool showRgbLabels = paletteBodyRect.Width >= 250;
 
             if (showPaletteLabels)
             {
@@ -995,13 +1022,6 @@ public sealed class EditorShellRenderer : IDisposable
             if (showPaletteLabels)
             {
                 DrawTextInRect("Palette Colors", statusFont, statusText, new UiRect(paletteBodyRect.X, layout.ActiveColorRect.Y + layout.ActiveColorRect.Height + 10, paletteBodyRect.Width, 18), 0, 0);
-                DrawTextInRect("Palette Actions", statusFont, statusText, new UiRect(paletteBodyRect.X, addSwatch.Rect.Y - 22, paletteBodyRect.Width, 18), 0, 0);
-            }
-            if (showRgbLabels)
-            {
-                DrawTextInRect("Red", statusFont, statusText, new UiRect(infoX, redMinus.Rect.Y, Math.Max(redMinus.Rect.X - infoX - 8, 24), redMinus.Rect.Height), 0, 6);
-                DrawTextInRect("Green", statusFont, statusText, new UiRect(infoX, greenMinus.Rect.Y, Math.Max(greenMinus.Rect.X - infoX - 8, 24), greenMinus.Rect.Height), 0, 6);
-                DrawTextInRect("Blue", statusFont, statusText, new UiRect(infoX, blueMinus.Rect.Y, Math.Max(blueMinus.Rect.X - infoX - 8, 24), blueMinus.Rect.Height), 0, 6);
             }
             foreach (ActionRect<PixelStudioAction> button in layout.PaletteButtons)
             {
@@ -1033,7 +1053,7 @@ public sealed class EditorShellRenderer : IDisposable
                 if (row.Index < 0)
                 {
                     DrawTextInRect("Default Palette", bodyFont, bodyText, rowRect, 8, 6);
-                    DrawTextInRect("Built-in", statusFont, statusText, rowRect, rowRect.Width - 62, 6);
+                    DrawTextInRect("Built-in", statusFont, statusText, new UiRect(rowRect.X + Math.Max(rowRect.Width - 58, 0), rowRect.Y, 50, rowRect.Height), 0, 6);
                     continue;
                 }
 
@@ -1048,6 +1068,16 @@ public sealed class EditorShellRenderer : IDisposable
             }
         }
 
+        if (layout.ContextMenuRect is not null)
+        {
+            foreach (ActionRect<PixelStudioContextMenuAction> button in layout.ContextMenuButtons)
+            {
+                bool isDestructive = button.Action is PixelStudioContextMenuAction.DeleteLayer or PixelStudioContextMenuAction.DeletePalette;
+                DrawUiRect(button.Rect, isDestructive ? Blend(_theme.TabInactive, _theme.Accent, 0.14f) : _theme.TabInactive);
+                DrawTextInRect(GetContextMenuLabel(button.Action), bodyFont, bodyText, button.Rect, 10, 6);
+            }
+        }
+
         if (!sidebarCollapsed && layout.PalettePromptRect is not null)
         {
             DrawTextInRect("Generate palette from image?", statusFont, statusText, new UiRect(layout.PalettePromptRect.Value.X + 10, layout.PalettePromptRect.Value.Y + 10, layout.PalettePromptRect.Value.Width - 20, 18), 0, 0);
@@ -1058,13 +1088,14 @@ public sealed class EditorShellRenderer : IDisposable
         }
 
         DrawTextInRect(sidebarCollapsed ? "L" : "Layers", titleFont, bodyText, new UiRect(layersHeaderRect.X + 8, layersHeaderRect.Y, layersHeaderRect.Width - 16, layersHeaderRect.Height), 0, 7);
-        if (!sidebarCollapsed && layersBodyRect.Width >= 180)
-        {
-            DrawTextInRect("Right-click deletes.", statusFont, statusText, new UiRect(layersBodyRect.X, layersBodyRect.Y, layersBodyRect.Width, 18), 0, 0);
-        }
         foreach (ActionRect<PixelStudioAction> button in layout.LayerButtons)
         {
             DrawCenteredTextInRect(GetPixelStudioActionLabel(button.Action), bodyFont, bodyText, button.Rect, 8, 6);
+        }
+        if (layout.LayerRenameFieldRect is not null)
+        {
+            string renameText = string.IsNullOrWhiteSpace(pixelStudio.LayerRenameBuffer) ? "Type a new layer name..." : pixelStudio.LayerRenameBuffer;
+            DrawTextInRect(renameText, bodyFont, bodyText, layout.LayerRenameFieldRect.Value, 8, 7);
         }
         for (int index = 0; index < layout.LayerRows.Count && index < pixelStudio.Layers.Count; index++)
         {
@@ -1157,12 +1188,11 @@ public sealed class EditorShellRenderer : IDisposable
         TextOptions options = new(font);
         FontRectangle bounds = TextMeasurer.MeasureBounds(text, options);
         FontRectangle size = TextMeasurer.MeasureSize(text, options);
-        float contentHeight = MathF.Ceiling(Math.Max(bounds.Height, size.Height));
         float ascender = MathF.Ceiling(MeasureFontAscender(font));
-        float descender = MathF.Ceiling(Math.Max(MeasureFontDescender(font), Math.Max(contentHeight - ascender, 0)));
-        float textHeight = MathF.Ceiling(Math.Max(ascender + descender, contentHeight));
+        float descender = MathF.Ceiling(MeasureFontDescender(font));
+        float textHeight = MathF.Ceiling(ascender + descender);
         float width = MathF.Ceiling(Math.Max(bounds.Width, size.Width));
-        return new TextMeasurement(width, ascender, descender, textHeight, bounds.Y);
+        return new TextMeasurement(width, ascender, descender, textHeight);
     }
 
     private void DrawTextClipped(UiRect rect, string text, Font font, SixLabors.ImageSharp.Color color, float paddingX = 0, float paddingY = 0, UiTextAlignment alignment = UiTextAlignment.Left)
@@ -1182,6 +1212,7 @@ public sealed class EditorShellRenderer : IDisposable
             return;
         }
 
+        _ = paddingY;
         float availableWidth = Math.Max(rect.Width - (paddingX * 2), 8);
         string fitted = ellipsis ? FitTextToWidth(text, font, availableWidth) : text;
         if (string.IsNullOrWhiteSpace(fitted))
@@ -1190,14 +1221,33 @@ public sealed class EditorShellRenderer : IDisposable
         }
 
         TextMeasurement measurement = MeasureText(fitted, font);
-        float textHeight = MathF.Max(measurement.TextHeight, UiTextLineHeight);
+        float textHeight = MathF.Max(measurement.Ascent + measurement.Descent, measurement.TextHeight);
+        UiRect contentRect = alignment == UiTextAlignment.Center
+            ? new UiRect(
+                rect.X + paddingX,
+                rect.Y + paddingY,
+                Math.Max(rect.Width - (paddingX * 2), 0),
+                Math.Max(rect.Height - (paddingY * 2), 0))
+            : new UiRect(
+                rect.X + paddingX,
+                rect.Y + paddingY,
+                Math.Max(rect.Width - (paddingX * 2), 0),
+                Math.Max(rect.Height - paddingY, 0));
         float contentX = alignment == UiTextAlignment.Center
-            ? rect.X + Math.Max((rect.Width - measurement.Width) * 0.5f, paddingX)
-            : rect.X + paddingX;
-        float textTop = rect.Y + Math.Max((rect.Height - textHeight) * 0.5f, 0);
-        float baselineY = textTop + measurement.Ascent;
+            ? contentRect.X + Math.Max((contentRect.Width - measurement.Width) * 0.5f, 0)
+            : contentRect.X;
+        float textTop = alignment == UiTextAlignment.Center
+            ? contentRect.Y + Math.Max((contentRect.Height - textHeight) * 0.5f, 0)
+            : contentRect.Y;
         float drawX = MathF.Round(contentX - TextTexturePadding);
-        float drawY = MathF.Round(baselineY + measurement.BoundsY - TextTexturePadding);
+        float drawY = MathF.Round(textTop - TextTexturePadding);
+
+        if (ShowTextDebugBounds)
+        {
+            DrawDebugOutline(rect, new ThemeColor(0.15f, 0.75f, 1.0f, 1.0f));
+            DrawDebugOutline(SnapRect(new UiRect(contentX, textTop, measurement.Width, textHeight)), new ThemeColor(1.0f, 0.38f, 0.2f, 1.0f));
+        }
+
         _textRenderer.DrawTextClipped(fitted, font, color, drawX, drawY, rect.X, rect.Y, rect.Width, rect.Height);
     }
 
@@ -1258,12 +1308,41 @@ public sealed class EditorShellRenderer : IDisposable
 
     private void DrawUiRect(UiRect rect, ThemeColor color)
     {
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            return;
+        }
+
         DrawRect(
             (int)MathF.Round(rect.X),
             _height - (int)MathF.Round(rect.Y + rect.Height),
             (int)MathF.Round(rect.Width),
             (int)MathF.Round(rect.Height),
             color);
+    }
+
+    private void DrawUiRectClipped(UiRect rect, ThemeColor color, UiRect clipRect)
+    {
+        UiRect? clipped = IntersectRect(rect, clipRect);
+        if (clipped is null)
+        {
+            return;
+        }
+
+        DrawUiRect(clipped.Value, color);
+    }
+
+    private void DrawDebugOutline(UiRect rect, ThemeColor color)
+    {
+        if (rect.Width <= 0 || rect.Height <= 0)
+        {
+            return;
+        }
+
+        DrawUiRect(new UiRect(rect.X, rect.Y, rect.Width, 1), color);
+        DrawUiRect(new UiRect(rect.X, rect.Y + Math.Max(rect.Height - 1, 0), rect.Width, 1), color);
+        DrawUiRect(new UiRect(rect.X, rect.Y, 1, rect.Height), color);
+        DrawUiRect(new UiRect(rect.X + Math.Max(rect.Width - 1, 0), rect.Y, 1, rect.Height), color);
     }
 
     private static float MeasureFontAscender(Font font)
@@ -1291,6 +1370,20 @@ public sealed class EditorShellRenderer : IDisposable
             MathF.Round(rect.Y),
             MathF.Round(Math.Max(rect.Width, 0)),
             MathF.Round(Math.Max(rect.Height, 0)));
+    }
+
+    private static UiRect? IntersectRect(UiRect a, UiRect b)
+    {
+        float left = MathF.Max(a.X, b.X);
+        float top = MathF.Max(a.Y, b.Y);
+        float right = MathF.Min(a.X + a.Width, b.X + b.Width);
+        float bottom = MathF.Min(a.Y + a.Height, b.Y + b.Height);
+        if (right <= left || bottom <= top)
+        {
+            return null;
+        }
+
+        return SnapRect(new UiRect(left, top, right - left, bottom - top));
     }
 
     private void DrawRect(int x, int y, int width, int height, ThemeColor color)
@@ -1361,7 +1454,7 @@ public sealed class EditorShellRenderer : IDisposable
         return action switch
         {
             EditorMenuAction.OpenHome => "Home",
-            EditorMenuAction.OpenPixelStudio => "Pixel Studio",
+            EditorMenuAction.OpenPixelStudio => EditorBranding.PixelToolName,
             EditorMenuAction.OpenProjects => "Projects",
             EditorMenuAction.OpenLayout => "Layout",
             EditorMenuAction.OpenPreferences => "Preferences",
@@ -1380,27 +1473,26 @@ public sealed class EditorShellRenderer : IDisposable
         UiRect leftPanel = _layoutSnapshot!.LeftPanelRect;
         if (IsCollapsedPanel(leftPanel))
         {
-            DrawCenteredTextInRect("W", titleFont, bodyText, new UiRect(leftPanel.X, leftPanel.Y + 8, leftPanel.Width, 28), 2, 2);
+            return;
         }
         else
         {
-        DrawTextInRect("Workspace", titleFont, bodyText, leftPanel, 18, 18);
-        DrawTextInRect("Current Tool", statusFont, bodyText, leftPanel, 18, 46);
-        DrawTextInRect(GetPixelToolLabel(_uiState.PixelStudio.ActiveTool), bodyFont, bodyText, leftPanel, 18, 66);
-        DrawTextInRect("Document", statusFont, bodyText, leftPanel, 18, 100);
-        DrawTextInRect(_uiState.PixelStudio.DocumentName, bodyFont, bodyText, leftPanel, 18, 120);
-        DrawTextInRect("Project Library", statusFont, bodyText, leftPanel, 18, 156);
-        DrawTextInRect(TrimPath(_uiState.ProjectLibraryPath, 26), bodyFont, bodyText, leftPanel, 18, 176);
-        if (leftPanel.Width >= 180)
-        {
-            DrawTextInRect("Inspired by task workspaces and dockable tools from Aseprite, Krita, Blender, Unity, and Godot.", statusFont, bodyText, leftPanel, 18, 222);
-        }
+            DrawTextInRect("Workspace", titleFont, bodyText, leftPanel, 18, 14);
+            DrawTextInRect("Current Tool", statusFont, bodyText, leftPanel, 18, 40);
+            DrawTextInRect(GetPixelToolLabel(_uiState.PixelStudio.ActiveTool), bodyFont, bodyText, leftPanel, 18, 60);
+            DrawTextInRect("Document", statusFont, bodyText, leftPanel, 18, 94);
+            DrawTextInRect(_uiState.PixelStudio.DocumentName, bodyFont, bodyText, leftPanel, 18, 114);
+            DrawTextInRect("Project Library", statusFont, bodyText, leftPanel, 18, 164);
+            DrawTextInRect(TrimPath(_uiState.ProjectLibraryPath, 26), bodyFont, bodyText, leftPanel, 18, 184);
+            if (leftPanel.Width >= 180)
+            {
+                DrawTextInRect("Inspired by task workspaces and dockable tools from Aseprite, Krita, Blender, Unity, and Godot.", statusFont, bodyText, leftPanel, 18, 232);
+            }
         }
 
         UiRect rightPanel = _layoutSnapshot.RightPanelRect;
         if (IsCollapsedPanel(rightPanel))
         {
-            DrawCenteredTextInRect("P", titleFont, bodyText, new UiRect(rightPanel.X, rightPanel.Y + 8, rightPanel.Width, 28), 2, 2);
             return;
         }
 
@@ -1468,6 +1560,18 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.TogglePlayback => "Play",
             PixelStudioAction.DecreaseFrameRate => "FPS -",
             PixelStudioAction.IncreaseFrameRate => "FPS +",
+            _ => action.ToString()
+        };
+    }
+
+    private static string GetContextMenuLabel(PixelStudioContextMenuAction action)
+    {
+        return action switch
+        {
+            PixelStudioContextMenuAction.RenamePalette => "Rename Palette",
+            PixelStudioContextMenuAction.DeletePalette => "Delete Palette",
+            PixelStudioContextMenuAction.RenameLayer => "Rename Layer",
+            PixelStudioContextMenuAction.DeleteLayer => "Delete Layer",
             _ => action.ToString()
         };
     }

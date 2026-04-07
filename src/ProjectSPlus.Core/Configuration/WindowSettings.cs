@@ -10,7 +10,7 @@ public sealed class WindowSettings
 
     public const int MinimumHeight = 600;
 
-    public string Title { get; init; } = "Project S+";
+    public string Title { get; init; } = "Kuma Engine";
 
     public int Width { get; init; } = DefaultWidth;
 
@@ -22,7 +22,7 @@ public sealed class WindowSettings
     {
         return new WindowSettings
         {
-            Title = string.IsNullOrWhiteSpace(Title) ? "Project S+" : Title,
+            Title = string.IsNullOrWhiteSpace(Title) ? "Kuma Engine" : Title,
             Width = NormalizeWidth(Width),
             Height = NormalizeHeight(Height),
             StartMaximized = StartMaximized

@@ -78,8 +78,8 @@ public static partial class EditorLayoutEngine
         UiRect rightSplitterRect = SnapRect(new UiRect(Math.Max(rightPanelRect.X - 4, 0), contentTop, 8, contentHeight));
         const float collapseHandleWidth = 12f;
         const float collapseHandleHeight = 38f;
-        UiRect leftCollapseHandleRect = SnapRect(new UiRect(leftPanelRect.X + leftPanelRect.Width - (collapseHandleWidth * 0.5f), leftPanelRect.Y + Math.Max((leftPanelRect.Height - collapseHandleHeight) * 0.5f, 18), collapseHandleWidth, collapseHandleHeight));
-        UiRect rightCollapseHandleRect = SnapRect(new UiRect(rightPanelRect.X - (collapseHandleWidth * 0.5f), rightPanelRect.Y + Math.Max((rightPanelRect.Height - collapseHandleHeight) * 0.5f, 18), collapseHandleWidth, collapseHandleHeight));
+        UiRect leftCollapseHandleRect = SnapRect(new UiRect(leftPanelRect.X + leftPanelRect.Width - collapseHandleWidth, leftPanelRect.Y + Math.Max((leftPanelRect.Height - collapseHandleHeight) * 0.5f, 18), collapseHandleWidth, collapseHandleHeight));
+        UiRect rightCollapseHandleRect = SnapRect(new UiRect(rightPanelRect.X, rightPanelRect.Y + Math.Max((rightPanelRect.Height - collapseHandleHeight) * 0.5f, 18), collapseHandleWidth, collapseHandleHeight));
 
         const float pagePadding = 22f;
         const float pageGap = 18f;
@@ -89,7 +89,7 @@ public static partial class EditorLayoutEngine
             Math.Max(workspaceRect.Width - (pagePadding * 2), 0),
             Math.Max(workspaceRect.Height - (pagePadding * 2), 0));
 
-        float logoWidth = EstimateButtonWidth("Project S+", 148, 72, 220, 18f);
+        float logoWidth = EstimateButtonWidth(EditorBranding.EngineName, 208, 104, 292, 18f);
         UiPanel menuPanel = new()
         {
             Id = "TopBar.MenuStrip",
@@ -137,13 +137,17 @@ public static partial class EditorLayoutEngine
             uiState.Tabs
                 .Select(tab => new UiLayoutItem<EditorWorkspaceTab>
                 {
+                    MinWidth = EstimateButtonWidth(
+                        tab.Title,
+                        tab.Page == EditorPageKind.Scratch ? 144 : 142,
+                        tab.Page == EditorPageKind.Scratch ? 48 : 34,
+                        352),
                     Id = $"Tab.{tab.Id}",
                     Label = tab.Title,
                     Value = tab,
-                    MinWidth = tab.Page == EditorPageKind.Scratch ? 96 : 88,
-                    MaxWidth = 240,
+                    MaxWidth = 352,
                     Height = Math.Max(tabHeight - 12, 22),
-                    HorizontalPadding = tab.Page == EditorPageKind.Scratch ? 50 : 40,
+                    HorizontalPadding = tab.Page == EditorPageKind.Scratch ? 40 : 30,
                     Priority = string.Equals(tab.Id, uiState.SelectedTabId, StringComparison.Ordinal) ? 3 : 1
                 })
                 .ToList(),
@@ -174,7 +178,7 @@ public static partial class EditorLayoutEngine
         UiRect? leftPanelRecentScrollThumbRect = null;
         if (!leftCollapsed)
         {
-            float leftInfoHeight = leftPanelBodyRect.Width >= 180 ? 118 : 84;
+            float leftInfoHeight = leftPanelBodyRect.Width >= 180 ? 136 : 96;
             UiRect viewportFrame = new(
                 leftPanelBodyRect.X,
                 leftPanelBodyRect.Y + leftInfoHeight,
@@ -266,10 +270,10 @@ public static partial class EditorLayoutEngine
                     actionPanel,
                     new[]
                     {
-                        new UiLayoutItem<EditorHomeAction> { Id = "Home.Action.NewProject", Label = "New Project Slot", Value = EditorHomeAction.CreateProjectSlot, MinWidth = 180, MaxWidth = 240, Height = 118, HorizontalPadding = 34, Priority = 3 },
-                        new UiLayoutItem<EditorHomeAction> { Id = "Home.Action.PixelStudio", Label = "Pixel Studio", Value = EditorHomeAction.OpenPixelStudio, MinWidth = 172, MaxWidth = 224, Height = 118, HorizontalPadding = 34, Priority = 3 },
-                        new UiLayoutItem<EditorHomeAction> { Id = "Home.Action.Projects", Label = "Projects", Value = EditorHomeAction.OpenProjects, MinWidth = 156, MaxWidth = 216, Height = 118, HorizontalPadding = 34, Priority = 2 },
-                        new UiLayoutItem<EditorHomeAction> { Id = "Home.Action.Preferences", Label = "Preferences", Value = EditorHomeAction.OpenPreferences, MinWidth = 170, MaxWidth = 230, Height = 118, HorizontalPadding = 34, Priority = 2 }
+                        new UiLayoutItem<EditorHomeAction> { Id = "Home.Action.NewProject", Label = "New Project Slot", Value = EditorHomeAction.CreateProjectSlot, MinWidth = 196, MaxWidth = 248, Height = 118, HorizontalPadding = 28, Priority = 3 },
+                        new UiLayoutItem<EditorHomeAction> { Id = "Home.Action.PixelStudio", Label = EditorBranding.PixelToolName, Value = EditorHomeAction.OpenPixelStudio, MinWidth = 196, MaxWidth = 244, Height = 118, HorizontalPadding = 28, Priority = 3 },
+                        new UiLayoutItem<EditorHomeAction> { Id = "Home.Action.Projects", Label = "Projects", Value = EditorHomeAction.OpenProjects, MinWidth = 170, MaxWidth = 220, Height = 118, HorizontalPadding = 28, Priority = 2 },
+                        new UiLayoutItem<EditorHomeAction> { Id = "Home.Action.Preferences", Label = "Preferences", Value = EditorHomeAction.OpenPreferences, MinWidth = 188, MaxWidth = 238, Height = 118, HorizontalPadding = 28, Priority = 2 }
                     },
                     wrap: true);
                 homeCards = cardPlacements
@@ -313,10 +317,10 @@ public static partial class EditorLayoutEngine
 
                 UiRect formBodyRect = GetPanelBodyRect(projectsFormPanelRect.Value);
                 float nameFieldWidth = Math.Min(Math.Max(formBodyRect.Width * 0.46f, 280), formBodyRect.Width);
-                UiRect projectNameRect = new(formBodyRect.X, formBodyRect.Y + 24, nameFieldWidth, 46);
-                float browseWidth = EstimateButtonWidth("Browse Folder", 136, 32, 184);
+                UiRect projectNameRect = new(formBodyRect.X, formBodyRect.Y + 36, nameFieldWidth, 46);
+                float browseWidth = EstimateButtonWidth("Browse Folder", 164, 36, 208);
                 float pathFieldWidth = Math.Max(formBodyRect.Width - browseWidth - 12, 220);
-                UiRect projectPathRect = new(formBodyRect.X, projectNameRect.Y + 82, pathFieldWidth, 46);
+                UiRect projectPathRect = new(formBodyRect.X, projectNameRect.Y + 92, pathFieldWidth, 46);
                 float browseX = Math.Min(projectPathRect.X + projectPathRect.Width + 12, formBodyRect.X + Math.Max(formBodyRect.Width - browseWidth, 0));
                 UiRect browseRect = new(browseX, projectPathRect.Y, Math.Min(browseWidth, Math.Max(formBodyRect.X + formBodyRect.Width - browseX, 0)), 46);
                 projectFormActions.Add(new ActionRect<ProjectFormAction> { Action = ProjectFormAction.ActivateProjectName, Rect = projectNameRect });
@@ -326,7 +330,7 @@ public static partial class EditorLayoutEngine
                 UiPanel projectActionPanel = new()
                 {
                     Id = "Projects.Actions",
-                    Bounds = new UiRect(formBodyRect.X, projectPathRect.Y + 68, formBodyRect.Width, Math.Max(formBodyRect.Y + formBodyRect.Height - (projectPathRect.Y + 68), 56)),
+                    Bounds = new UiRect(formBodyRect.X, projectPathRect.Y + 82, formBodyRect.Width, Math.Max(formBodyRect.Y + formBodyRect.Height - (projectPathRect.Y + 82), 56)),
                     Padding = 0,
                     Spacing = 12
                 };
