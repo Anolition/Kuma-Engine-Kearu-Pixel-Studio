@@ -50,7 +50,7 @@ public sealed unsafe class ImageRenderer : IDisposable
         }
 
         ImageTexture texture = GetOrCreateTexture(filePath);
-        float textureAspect = texture.Width / (float)Math.Max(texture.Height, 1);
+        float textureAspect = texture.ContentWidth / (float)Math.Max(texture.ContentHeight, 1);
         float targetAspect = width / Math.Max(height, 1f);
 
         float drawWidth = width;
@@ -74,12 +74,12 @@ public sealed unsafe class ImageRenderer : IDisposable
 
         float[] vertices =
         [
-            left, top, 0.0f, 0.0f,
-            right, top, 1.0f, 0.0f,
-            right, bottom, 1.0f, 1.0f,
-            left, top, 0.0f, 0.0f,
-            right, bottom, 1.0f, 1.0f,
-            left, bottom, 0.0f, 1.0f
+            left, top, texture.U0, texture.V0,
+            right, top, texture.U1, texture.V0,
+            right, bottom, texture.U1, texture.V1,
+            left, top, texture.U0, texture.V0,
+            right, bottom, texture.U1, texture.V1,
+            left, bottom, texture.U0, texture.V1
         ];
 
         _gl.Disable(EnableCap.ScissorTest);
@@ -131,6 +131,7 @@ public sealed unsafe class ImageRenderer : IDisposable
         int height = image.Height;
         Rgba32[] pixels = new Rgba32[width * height];
         image.CopyPixelDataTo(pixels);
+        (int contentWidth, int contentHeight, float u0, float v0, float u1, float v1) = GetVisibleContentBounds(pixels, width, height);
 
         uint handle = _gl.GenTexture();
         _gl.BindTexture(TextureTarget.Texture2D, handle);
@@ -145,7 +146,13 @@ public sealed unsafe class ImageRenderer : IDisposable
         {
             Handle = handle,
             Width = width,
-            Height = height
+            Height = height,
+            ContentWidth = contentWidth,
+            ContentHeight = contentHeight,
+            U0 = u0,
+            V0 = v0,
+            U1 = u1,
+            V1 = v1
         };
 
         _textureCache[filePath] = created;
@@ -205,6 +212,43 @@ public sealed unsafe class ImageRenderer : IDisposable
         return program;
     }
 
+    private static (int ContentWidth, int ContentHeight, float U0, float V0, float U1, float V1) GetVisibleContentBounds(IReadOnlyList<Rgba32> pixels, int width, int height)
+    {
+        int minX = width;
+        int minY = height;
+        int maxX = -1;
+        int maxY = -1;
+
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                if (pixels[(y * width) + x].A <= 8)
+                {
+                    continue;
+                }
+
+                minX = Math.Min(minX, x);
+                minY = Math.Min(minY, y);
+                maxX = Math.Max(maxX, x);
+                maxY = Math.Max(maxY, y);
+            }
+        }
+
+        if (maxX < minX || maxY < minY)
+        {
+            return (width, height, 0f, 0f, 1f, 1f);
+        }
+
+        int contentWidth = Math.Max((maxX - minX) + 1, 1);
+        int contentHeight = Math.Max((maxY - minY) + 1, 1);
+        float u0 = minX / (float)Math.Max(width, 1);
+        float v0 = minY / (float)Math.Max(height, 1);
+        float u1 = (maxX + 1) / (float)Math.Max(width, 1);
+        float v1 = (maxY + 1) / (float)Math.Max(height, 1);
+        return (contentWidth, contentHeight, u0, v0, u1, v1);
+    }
+
     private uint CompileShader(ShaderType shaderType, string source)
     {
         uint shader = _gl.CreateShader(shaderType);
@@ -226,5 +270,17 @@ public sealed unsafe class ImageRenderer : IDisposable
         public required int Width { get; init; }
 
         public required int Height { get; init; }
+
+        public required int ContentWidth { get; init; }
+
+        public required int ContentHeight { get; init; }
+
+        public required float U0 { get; init; }
+
+        public required float V0 { get; init; }
+
+        public required float U1 { get; init; }
+
+        public required float V1 { get; init; }
     }
 }

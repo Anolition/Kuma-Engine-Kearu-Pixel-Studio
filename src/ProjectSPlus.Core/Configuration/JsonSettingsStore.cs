@@ -73,7 +73,9 @@ public sealed class JsonSettingsStore
             || normalizedLayout.PixelToolsPanelWidth != settings.Editor.Layout.PixelToolsPanelWidth
             || normalizedLayout.PixelSidebarWidth != settings.Editor.Layout.PixelSidebarWidth
             || normalizedLayout.PixelToolsPanelCollapsed != settings.Editor.Layout.PixelToolsPanelCollapsed
-            || normalizedLayout.PixelSidebarCollapsed != settings.Editor.Layout.PixelSidebarCollapsed;
+            || normalizedLayout.PixelSidebarCollapsed != settings.Editor.Layout.PixelSidebarCollapsed
+            || normalizedLayout.PixelToolSettingsDockSide != settings.Editor.Layout.PixelToolSettingsDockSide
+            || normalizedLayout.PixelTimelineVisible != settings.Editor.Layout.PixelTimelineVisible;
 
         if (!windowChanged && !layoutChanged)
         {

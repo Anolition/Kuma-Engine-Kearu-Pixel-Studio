@@ -18,6 +18,14 @@ public sealed class EditorLayoutSettings
 
     public bool PixelSidebarCollapsed { get; init; }
 
+    public PixelStudioDockSide PixelToolSettingsDockSide { get; init; } = PixelStudioDockSide.Right;
+
+    public bool PixelTimelineVisible { get; init; }
+
+    public float? PixelToolSettingsOffsetX { get; init; }
+
+    public float? PixelToolSettingsOffsetY { get; init; }
+
     public EditorLayoutSettings Normalize()
     {
         return new EditorLayoutSettings
@@ -29,7 +37,11 @@ public sealed class EditorLayoutSettings
             PixelToolsPanelWidth = Math.Clamp(PixelToolsPanelWidth, 132f, 280f),
             PixelSidebarWidth = Math.Clamp(PixelSidebarWidth, 248f, 440f),
             PixelToolsPanelCollapsed = PixelToolsPanelCollapsed,
-            PixelSidebarCollapsed = PixelSidebarCollapsed
+            PixelSidebarCollapsed = PixelSidebarCollapsed,
+            PixelToolSettingsDockSide = PixelToolSettingsDockSide,
+            PixelTimelineVisible = PixelTimelineVisible,
+            PixelToolSettingsOffsetX = PixelToolSettingsOffsetX,
+            PixelToolSettingsOffsetY = PixelToolSettingsOffsetY
         };
     }
 }

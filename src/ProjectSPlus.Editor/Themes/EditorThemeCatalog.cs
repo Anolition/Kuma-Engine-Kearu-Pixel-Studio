@@ -5,9 +5,15 @@ public static class EditorThemeCatalog
     public const string DarkThemeName = "ProjectSPlus.Dark";
     public const string LightThemeName = "ProjectSPlus.Light";
     public const string KumaThemeName = "ProjectSPlus.Kuma";
+    public const string KearuThemeName = "ProjectSPlus.Kearu";
 
     public static EditorTheme GetByName(string? themeName)
     {
+        if (string.Equals(themeName, DarkThemeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateDarkTheme();
+        }
+
         if (string.Equals(themeName, LightThemeName, StringComparison.OrdinalIgnoreCase))
         {
             return CreateLightTheme();
@@ -16,6 +22,11 @@ public static class EditorThemeCatalog
         if (string.Equals(themeName, KumaThemeName, StringComparison.OrdinalIgnoreCase))
         {
             return CreateKumaTheme();
+        }
+
+        if (string.Equals(themeName, KearuThemeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateKearuTheme();
         }
 
         return CreateKumaTheme();
@@ -31,6 +42,11 @@ public static class EditorThemeCatalog
         if (string.Equals(theme.Name, LightThemeName, StringComparison.OrdinalIgnoreCase))
         {
             return CreateKumaTheme();
+        }
+
+        if (string.Equals(theme.Name, KumaThemeName, StringComparison.OrdinalIgnoreCase))
+        {
+            return CreateKearuTheme();
         }
 
         return CreateDarkTheme();
@@ -77,16 +93,34 @@ public static class EditorThemeCatalog
         return new EditorTheme
         {
             Name = KumaThemeName,
-            Background = new ThemeColor(0.16f, 0.12f, 0.09f),
-            MenuBar = new ThemeColor(0.28f, 0.21f, 0.15f),
-            SidePanel = new ThemeColor(0.34f, 0.25f, 0.18f),
-            Workspace = new ThemeColor(0.41f, 0.31f, 0.22f),
-            TabStrip = new ThemeColor(0.30f, 0.23f, 0.17f),
-            TabActive = new ThemeColor(0.32f, 0.47f, 0.31f),
-            TabInactive = new ThemeColor(0.46f, 0.35f, 0.25f),
-            StatusBar = new ThemeColor(0.22f, 0.17f, 0.12f),
-            Divider = new ThemeColor(0.56f, 0.44f, 0.31f),
-            Accent = new ThemeColor(0.47f, 0.66f, 0.39f)
+            Background = new ThemeColor(0.10f, 0.08f, 0.06f),
+            MenuBar = new ThemeColor(0.18f, 0.13f, 0.09f),
+            SidePanel = new ThemeColor(0.23f, 0.17f, 0.12f),
+            Workspace = new ThemeColor(0.29f, 0.22f, 0.16f),
+            TabStrip = new ThemeColor(0.21f, 0.16f, 0.11f),
+            TabActive = new ThemeColor(0.28f, 0.42f, 0.28f),
+            TabInactive = new ThemeColor(0.34f, 0.25f, 0.18f),
+            StatusBar = new ThemeColor(0.15f, 0.11f, 0.08f),
+            Divider = new ThemeColor(0.45f, 0.34f, 0.24f),
+            Accent = new ThemeColor(0.45f, 0.63f, 0.37f)
+        };
+    }
+
+    private static EditorTheme CreateKearuTheme()
+    {
+        return new EditorTheme
+        {
+            Name = KearuThemeName,
+            Background = new ThemeColor(0.05f, 0.10f, 0.08f),
+            MenuBar = new ThemeColor(0.08f, 0.16f, 0.12f),
+            SidePanel = new ThemeColor(0.10f, 0.20f, 0.15f),
+            Workspace = new ThemeColor(0.12f, 0.26f, 0.19f),
+            TabStrip = new ThemeColor(0.09f, 0.18f, 0.14f),
+            TabActive = new ThemeColor(0.30f, 0.43f, 0.30f),
+            TabInactive = new ThemeColor(0.18f, 0.30f, 0.22f),
+            StatusBar = new ThemeColor(0.07f, 0.14f, 0.11f),
+            Divider = new ThemeColor(0.52f, 0.41f, 0.31f),
+            Accent = new ThemeColor(0.84f, 0.54f, 0.66f)
         };
     }
 }

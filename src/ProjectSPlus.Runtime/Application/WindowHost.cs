@@ -1,4 +1,6 @@
 using ProjectSPlus.Core.Configuration;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
@@ -15,6 +17,7 @@ public sealed class WindowHost : IApplicationHost
 
         GL? gl = null;
         IInputContext? inputContext = null;
+        bool titleBarThemeApplied = false;
 
         window.Load += () =>
         {
@@ -53,6 +56,11 @@ public sealed class WindowHost : IApplicationHost
 
         window.Render += _ =>
         {
+            if (!titleBarThemeApplied)
+            {
+                titleBarThemeApplied = TryApplyWindowsTitleBarTheme(settings.Editor.ThemeName);
+            }
+
             scene.Render();
         };
 
@@ -86,4 +94,26 @@ public sealed class WindowHost : IApplicationHost
 
         return options;
     }
+
+    private static bool TryApplyWindowsTitleBarTheme(string themeName)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return true;
+        }
+
+        IntPtr hwnd = Process.GetCurrentProcess().MainWindowHandle;
+        if (hwnd == IntPtr.Zero)
+        {
+            return false;
+        }
+
+        int darkMode = string.Equals(themeName, "ProjectSPlus.Light", StringComparison.OrdinalIgnoreCase) ? 0 : 1;
+        DwmSetWindowAttribute(hwnd, 20, ref darkMode, sizeof(int));
+        DwmSetWindowAttribute(hwnd, 19, ref darkMode, sizeof(int));
+        return true;
+    }
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int dwAttribute, ref int pvAttribute, int cbAttribute);
 }

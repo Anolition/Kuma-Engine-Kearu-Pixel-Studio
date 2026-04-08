@@ -1,3 +1,4 @@
+using ProjectSPlus.Core.Configuration;
 using ProjectSPlus.Editor.Themes;
 
 namespace ProjectSPlus.App.Editor;
@@ -11,6 +12,8 @@ public sealed class PixelStudioViewState
     public int CanvasHeight { get; set; }
 
     public int Zoom { get; set; }
+
+    public int BrushSize { get; set; }
 
     public float CanvasPanX { get; set; }
 
@@ -44,6 +47,18 @@ public sealed class PixelStudioViewState
 
     public bool LayerRenameActive { get; set; }
 
+    public bool FrameRenameActive { get; set; }
+
+    public bool HasSelection { get; set; }
+
+    public int SelectionX { get; set; }
+
+    public int SelectionY { get; set; }
+
+    public int SelectionWidth { get; set; }
+
+    public int SelectionHeight { get; set; }
+
     public bool PromptForPaletteGenerationAfterImport { get; set; } = true;
 
     public float ToolsPanelPreferredWidth { get; set; } = 164;
@@ -53,6 +68,12 @@ public sealed class PixelStudioViewState
     public bool ToolsPanelCollapsed { get; set; }
 
     public bool SidebarCollapsed { get; set; }
+
+    public bool TimelineVisible { get; set; }
+
+    public float ToolSettingsPanelOffsetX { get; set; }
+
+    public float ToolSettingsPanelOffsetY { get; set; }
 
     public int PaletteSwatchScrollRow { get; set; }
 
@@ -65,6 +86,8 @@ public sealed class PixelStudioViewState
     public string PaletteRenameBuffer { get; set; } = string.Empty;
 
     public string LayerRenameBuffer { get; set; } = string.Empty;
+
+    public string FrameRenameBuffer { get; set; } = string.Empty;
 
     public bool ContextMenuVisible { get; set; }
 

@@ -69,12 +69,15 @@ public sealed partial class EditorWindowScene : IWindowScene
     private bool _rightPanelCollapsed;
     private bool _pixelToolsCollapsed;
     private bool _pixelSidebarCollapsed;
+    private bool _pixelTimelineVisible;
     private ShellDragMode _shellDragMode;
     private PixelStudioDragMode _pixelDragMode;
     private string _paletteRenameBuffer = string.Empty;
     private string _layerRenameBuffer = string.Empty;
     private float _pixelContextMenuX;
     private float _pixelContextMenuY;
+    private float _pixelToolSettingsPanelOffsetX = float.NaN;
+    private float _pixelToolSettingsPanelOffsetY = float.NaN;
 
     public EditorWindowScene(EditorShell shell, string initialThemeName)
         : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true)
@@ -122,6 +125,9 @@ public sealed partial class EditorWindowScene : IWindowScene
         _previousPixelSidebarWidth = normalizedLayout.PixelSidebarWidth;
         _pixelToolsCollapsed = normalizedLayout.PixelToolsPanelCollapsed;
         _pixelSidebarCollapsed = normalizedLayout.PixelSidebarCollapsed;
+        _pixelTimelineVisible = normalizedLayout.PixelTimelineVisible;
+        _pixelToolSettingsPanelOffsetX = normalizedLayout.PixelToolSettingsOffsetX ?? float.NaN;
+        _pixelToolSettingsPanelOffsetY = normalizedLayout.PixelToolSettingsOffsetY ?? float.NaN;
         _savedPixelPalettes = savedPixelPalettes
             .Where(palette => !string.IsNullOrWhiteSpace(palette.Id))
             .Select(CloneSavedPixelPalette)
@@ -682,7 +688,10 @@ public sealed partial class EditorWindowScene : IWindowScene
                 PixelToolsPanelWidth = _pixelToolsCollapsed ? Math.Max(_previousPixelToolsPanelWidth, _pixelToolsPanelWidth) : _pixelToolsPanelWidth,
                 PixelSidebarWidth = _pixelSidebarCollapsed ? Math.Max(_previousPixelSidebarWidth, _pixelSidebarWidth) : _pixelSidebarWidth,
                 PixelToolsPanelCollapsed = _pixelToolsCollapsed,
-                PixelSidebarCollapsed = _pixelSidebarCollapsed
+                PixelSidebarCollapsed = _pixelSidebarCollapsed,
+                PixelTimelineVisible = _pixelTimelineVisible,
+                PixelToolSettingsOffsetX = float.IsFinite(_pixelToolSettingsPanelOffsetX) ? _pixelToolSettingsPanelOffsetX : null,
+                PixelToolSettingsOffsetY = float.IsFinite(_pixelToolSettingsPanelOffsetY) ? _pixelToolSettingsPanelOffsetY : null
             },
             PixelPalettes = _savedPixelPalettes.Select(CloneSavedPixelPalette).ToList(),
             ActivePixelPaletteId = _activePixelPaletteId,
@@ -710,7 +719,9 @@ public sealed partial class EditorWindowScene : IWindowScene
             ? "Dark"
             : string.Equals(_theme.Name, EditorThemeCatalog.LightThemeName, StringComparison.OrdinalIgnoreCase)
                 ? "Light"
-                : "Kuma";
+                : string.Equals(_theme.Name, EditorThemeCatalog.KearuThemeName, StringComparison.OrdinalIgnoreCase)
+                    ? "Kearu"
+                    : "Kuma";
 
     private void SyncUiState(string? overrideStatus = null)
     {
@@ -1065,13 +1076,13 @@ public sealed partial class EditorWindowScene : IWindowScene
     {
         return
         [
-            new EditorShortcutBinding
-            {
-                Action = ShortcutAction.ToggleTheme,
-                Label = "Toggle Theme",
-                Description = "Cycle between Dark, Light, and Kuma editor themes.",
-                Key = ParseKey(shortcuts.ToggleTheme, Key.F6)
-            },
+                new EditorShortcutBinding
+                {
+                    Action = ShortcutAction.ToggleTheme,
+                    Label = "Toggle Theme",
+                    Description = "Cycle between Dark, Light, Kuma, and Kearu editor themes.",
+                    Key = ParseKey(shortcuts.ToggleTheme, Key.F6)
+                },
             new EditorShortcutBinding
             {
                 Action = ShortcutAction.CycleFontSize,

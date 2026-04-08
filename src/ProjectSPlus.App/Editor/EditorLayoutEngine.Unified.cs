@@ -89,11 +89,13 @@ public static partial class EditorLayoutEngine
             Math.Max(workspaceRect.Width - (pagePadding * 2), 0),
             Math.Max(workspaceRect.Height - (pagePadding * 2), 0));
 
-        float logoWidth = EstimateButtonWidth(EditorBranding.EngineName, 208, 104, 292, 18f);
+        const float menuButtonHeight = 28f;
+        float menuButtonTop = MathF.Round(Math.Max((menuHeight - menuButtonHeight) * 0.5f, 8f));
+        float logoWidth = EstimateButtonWidth(EditorBranding.EngineName, 188, 88, 198, 18f);
         UiPanel menuPanel = new()
         {
             Id = "TopBar.MenuStrip",
-            Bounds = new UiRect(14, 8, Math.Max(width - logoWidth - 42, 120), Math.Max(menuHeight - 16, 24)),
+            Bounds = new UiRect(14, menuButtonTop, Math.Max(width - logoWidth - 22, 120), menuButtonHeight),
             Padding = 0,
             Spacing = 8
         };
@@ -107,7 +109,7 @@ public static partial class EditorLayoutEngine
                     Value = menu,
                     MinWidth = 82,
                     MaxWidth = 168,
-                    Height = Math.Max(menuHeight - 16, 24),
+                    Height = menuButtonHeight,
                     HorizontalPadding = 38
                 })
                 .ToList(),
@@ -119,18 +121,15 @@ public static partial class EditorLayoutEngine
                 Rect = button.Rect
             })
             .ToList();
-        float menuButtonsRight = menuButtons.Count > 0
-            ? menuButtons.Max(button => button.Rect.X + button.Rect.Width)
-            : 14;
-        float logoX = Math.Min(Math.Max(menuButtonsRight + 12, width - logoWidth - 14), Math.Max(width - logoWidth - 14, 14));
-        UiRect menuLogoRect = new(logoX, 6, logoWidth, Math.Max(menuHeight - 12, 28));
+        float logoX = Math.Max(width - logoWidth - 8, 14);
+        UiRect menuLogoRect = new(logoX, 6, logoWidth, 46);
 
         UiPanel tabPanel = new()
         {
             Id = "TopBar.TabStrip",
             Bounds = new UiRect(workspaceX + 10, menuHeight + 6, Math.Max(workspaceWidth - 20, 120), Math.Max(tabHeight - 12, 22)),
             Padding = 0,
-            Spacing = 8
+            Spacing = 6
         };
         IReadOnlyList<UiLayoutPlacement<EditorWorkspaceTab>> tabPlacements = LayoutHorizontal(
             tabPanel,
@@ -139,15 +138,16 @@ public static partial class EditorLayoutEngine
                 {
                     MinWidth = EstimateButtonWidth(
                         tab.Title,
-                        tab.Page == EditorPageKind.Scratch ? 144 : 142,
-                        tab.Page == EditorPageKind.Scratch ? 48 : 34,
-                        352),
+                        tab.Page == EditorPageKind.Scratch ? 124 : 92,
+                        tab.Page == EditorPageKind.Scratch ? 56 : 34,
+                        float.PositiveInfinity,
+                        16f),
                     Id = $"Tab.{tab.Id}",
                     Label = tab.Title,
                     Value = tab,
-                    MaxWidth = 352,
+                    MaxWidth = float.PositiveInfinity,
                     Height = Math.Max(tabHeight - 12, 22),
-                    HorizontalPadding = tab.Page == EditorPageKind.Scratch ? 40 : 30,
+                    HorizontalPadding = tab.Page == EditorPageKind.Scratch ? 48 : 32,
                     Priority = string.Equals(tab.Id, uiState.SelectedTabId, StringComparison.Ordinal) ? 3 : 1
                 })
                 .ToList(),
@@ -450,9 +450,9 @@ public static partial class EditorLayoutEngine
                     preferenceActionPanel,
                     new[]
                     {
-                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Theme", Label = $"Theme: {uiState.ThemeLabel}", Value = EditorPreferenceAction.ToggleTheme, MinWidth = 168, MaxWidth = 220, Height = 46, HorizontalPadding = 28, Priority = 3 },
-                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Size", Label = $"Text: {uiState.FontSizeLabel}", Value = EditorPreferenceAction.CycleFontSize, MinWidth = 156, MaxWidth = 210, Height = 46, HorizontalPadding = 28, Priority = 3 },
-                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Font", Label = $"Font: {uiState.FontFamily}", Value = EditorPreferenceAction.CycleFontFamily, MinWidth = 206, MaxWidth = 280, Height = 46, HorizontalPadding = 28, Priority = 2 }
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Theme", Label = $"Theme: {uiState.ThemeLabel}", Value = EditorPreferenceAction.ToggleTheme, MinWidth = 188, MaxWidth = 242, Height = 50, HorizontalPadding = 36, Priority = 3 },
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Size", Label = $"Text: {uiState.FontSizeLabel}", Value = EditorPreferenceAction.CycleFontSize, MinWidth = 178, MaxWidth = 232, Height = 50, HorizontalPadding = 36, Priority = 3 },
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Font", Label = $"Font: {uiState.FontFamily}", Value = EditorPreferenceAction.CycleFontFamily, MinWidth = 224, MaxWidth = 320, Height = 50, HorizontalPadding = 36, Priority = 2 }
                     },
                     wrap: true);
                 preferenceActions = preferencePlacements

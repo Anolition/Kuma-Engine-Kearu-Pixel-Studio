@@ -12,6 +12,8 @@ public sealed class PixelStudioProjectDocument
 
     public int DesiredZoom { get; init; } = 24;
 
+    public int BrushSize { get; init; } = 1;
+
     public float CanvasPanX { get; init; }
 
     public float CanvasPanY { get; init; }
@@ -49,6 +51,8 @@ public sealed class PixelStudioProjectLayerDocument
     public string Name { get; init; } = "Layer";
 
     public bool IsVisible { get; init; } = true;
+
+    public bool IsLocked { get; init; }
 
     public IReadOnlyList<int> Pixels { get; init; } = [];
 }

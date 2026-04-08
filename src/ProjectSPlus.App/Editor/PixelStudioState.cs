@@ -12,6 +12,8 @@ public sealed class PixelStudioState
 
     public int DesiredZoom { get; set; } = 24;
 
+    public int BrushSize { get; set; } = 1;
+
     public float CanvasPanX { get; set; }
 
     public float CanvasPanY { get; set; }

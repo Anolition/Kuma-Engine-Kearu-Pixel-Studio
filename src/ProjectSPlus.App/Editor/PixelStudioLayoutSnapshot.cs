@@ -24,6 +24,8 @@ public sealed class PixelStudioLayoutSnapshot
 
     public required UiRect PalettePanelRect { get; init; }
 
+    public required UiRect ToolSettingsPanelRect { get; init; }
+
     public required UiRect LayersPanelRect { get; init; }
 
     public required UiRect TimelinePanelRect { get; init; }
@@ -62,9 +64,25 @@ public sealed class PixelStudioLayoutSnapshot
 
     public UiRect? LayerRenameFieldRect { get; init; }
 
+    public UiRect? FrameRenameFieldRect { get; init; }
+
     public UiRect? PalettePromptRect { get; init; }
 
     public UiRect? ContextMenuRect { get; init; }
+
+    public UiRect? BrushSizeSliderRect { get; init; }
+
+    public UiRect? BrushSizeFillRect { get; init; }
+
+    public UiRect? BrushSizeKnobRect { get; init; }
+
+    public UiRect? BrushPreviewRect { get; init; }
+
+    public required int CameraZoom { get; init; }
+
+    public required float CameraPanX { get; init; }
+
+    public required float CameraPanY { get; init; }
 
     public required int CanvasCellSize { get; init; }
 
@@ -75,6 +93,8 @@ public sealed class PixelStudioLayoutSnapshot
     public required IReadOnlyList<ActionRect<PixelStudioAction>> CanvasButtons { get; init; }
 
     public required IReadOnlyList<ActionRect<PixelStudioAction>> PaletteButtons { get; init; }
+
+    public required IReadOnlyList<ActionRect<PixelStudioAction>> ToolSettingsButtons { get; init; }
 
     public required IReadOnlyList<ActionRect<PixelStudioAction>> PaletteLibraryButtons { get; init; }
 
@@ -98,7 +118,7 @@ public sealed class PixelStudioLayoutSnapshot
 
     public required IReadOnlyList<IndexedRect> CanvasCells { get; init; }
 
-    public PixelStudioLayoutSnapshot WithCanvasViewport(UiRect canvasViewportRect)
+    public PixelStudioLayoutSnapshot WithCanvasCamera(PixelStudioCameraState camera)
     {
         return new PixelStudioLayoutSnapshot
         {
@@ -107,12 +127,13 @@ public sealed class PixelStudioLayoutSnapshot
             ToolbarRect = ToolbarRect,
             CanvasPanelRect = CanvasPanelRect,
             CanvasClipRect = CanvasClipRect,
-            CanvasViewportRect = canvasViewportRect,
+            CanvasViewportRect = camera.ViewportRect,
             LeftSplitterRect = LeftSplitterRect,
             RightSplitterRect = RightSplitterRect,
             LeftCollapseHandleRect = LeftCollapseHandleRect,
             RightCollapseHandleRect = RightCollapseHandleRect,
             PalettePanelRect = PalettePanelRect,
+            ToolSettingsPanelRect = ToolSettingsPanelRect,
             LayersPanelRect = LayersPanelRect,
             TimelinePanelRect = TimelinePanelRect,
             ActiveColorRect = ActiveColorRect,
@@ -132,13 +153,22 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteLibraryRect = PaletteLibraryRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
+            FrameRenameFieldRect = FrameRenameFieldRect,
             PalettePromptRect = PalettePromptRect,
             ContextMenuRect = ContextMenuRect,
-            CanvasCellSize = CanvasCellSize,
+            BrushSizeSliderRect = BrushSizeSliderRect,
+            BrushSizeFillRect = BrushSizeFillRect,
+            BrushSizeKnobRect = BrushSizeKnobRect,
+            BrushPreviewRect = BrushPreviewRect,
+            CameraZoom = camera.Zoom,
+            CameraPanX = camera.PanX,
+            CameraPanY = camera.PanY,
+            CanvasCellSize = camera.Zoom,
             ToolButtons = ToolButtons,
             DocumentButtons = DocumentButtons,
             CanvasButtons = CanvasButtons,
             PaletteButtons = PaletteButtons,
+            ToolSettingsButtons = ToolSettingsButtons,
             PaletteLibraryButtons = PaletteLibraryButtons,
             PalettePromptButtons = PalettePromptButtons,
             ContextMenuButtons = ContextMenuButtons,
@@ -151,5 +181,87 @@ public sealed class PixelStudioLayoutSnapshot
             FrameRows = FrameRows,
             CanvasCells = CanvasCells
         };
+    }
+
+    public PixelStudioLayoutSnapshot WithToolSettingsPanel(UiRect panelRect)
+    {
+        float deltaX = panelRect.X - ToolSettingsPanelRect.X;
+        float deltaY = panelRect.Y - ToolSettingsPanelRect.Y;
+
+        return new PixelStudioLayoutSnapshot
+        {
+            HeaderRect = HeaderRect,
+            CommandBarRect = CommandBarRect,
+            ToolbarRect = ToolbarRect,
+            CanvasPanelRect = CanvasPanelRect,
+            CanvasClipRect = CanvasClipRect,
+            CanvasViewportRect = CanvasViewportRect,
+            LeftSplitterRect = LeftSplitterRect,
+            RightSplitterRect = RightSplitterRect,
+            LeftCollapseHandleRect = LeftCollapseHandleRect,
+            RightCollapseHandleRect = RightCollapseHandleRect,
+            PalettePanelRect = PalettePanelRect,
+            ToolSettingsPanelRect = panelRect,
+            LayersPanelRect = LayersPanelRect,
+            TimelinePanelRect = TimelinePanelRect,
+            ActiveColorRect = ActiveColorRect,
+            PlaybackPreviewRect = PlaybackPreviewRect,
+            PaletteSwatchViewportRect = PaletteSwatchViewportRect,
+            PaletteSwatchScrollTrackRect = PaletteSwatchScrollTrackRect,
+            PaletteSwatchScrollThumbRect = PaletteSwatchScrollThumbRect,
+            SavedPaletteViewportRect = SavedPaletteViewportRect,
+            SavedPaletteScrollTrackRect = SavedPaletteScrollTrackRect,
+            SavedPaletteScrollThumbRect = SavedPaletteScrollThumbRect,
+            LayerListViewportRect = LayerListViewportRect,
+            LayerScrollTrackRect = LayerScrollTrackRect,
+            LayerScrollThumbRect = LayerScrollThumbRect,
+            FrameListViewportRect = FrameListViewportRect,
+            FrameScrollTrackRect = FrameScrollTrackRect,
+            FrameScrollThumbRect = FrameScrollThumbRect,
+            PaletteLibraryRect = PaletteLibraryRect,
+            PaletteRenameFieldRect = PaletteRenameFieldRect,
+            LayerRenameFieldRect = LayerRenameFieldRect,
+            FrameRenameFieldRect = FrameRenameFieldRect,
+            PalettePromptRect = PalettePromptRect,
+            ContextMenuRect = ContextMenuRect,
+            BrushSizeSliderRect = OffsetRect(BrushSizeSliderRect, deltaX, deltaY),
+            BrushSizeFillRect = OffsetRect(BrushSizeFillRect, deltaX, deltaY),
+            BrushSizeKnobRect = OffsetRect(BrushSizeKnobRect, deltaX, deltaY),
+            BrushPreviewRect = OffsetRect(BrushPreviewRect, deltaX, deltaY),
+            CameraZoom = CameraZoom,
+            CameraPanX = CameraPanX,
+            CameraPanY = CameraPanY,
+            CanvasCellSize = CanvasCellSize,
+            ToolButtons = ToolButtons,
+            DocumentButtons = DocumentButtons,
+            CanvasButtons = CanvasButtons,
+            PaletteButtons = PaletteButtons,
+            ToolSettingsButtons = ToolSettingsButtons,
+            PaletteLibraryButtons = PaletteLibraryButtons,
+            PalettePromptButtons = PalettePromptButtons,
+            ContextMenuButtons = ContextMenuButtons,
+            LayerButtons = LayerButtons,
+            TimelineButtons = TimelineButtons,
+            PaletteSwatches = PaletteSwatches,
+            SavedPaletteRows = SavedPaletteRows,
+            LayerRows = LayerRows,
+            LayerVisibilityButtons = LayerVisibilityButtons,
+            FrameRows = FrameRows,
+            CanvasCells = CanvasCells
+        };
+    }
+
+    private static UiRect? OffsetRect(UiRect? rect, float deltaX, float deltaY)
+    {
+        if (rect is null)
+        {
+            return null;
+        }
+
+        return new UiRect(
+            rect.Value.X + deltaX,
+            rect.Value.Y + deltaY,
+            rect.Value.Width,
+            rect.Value.Height);
     }
 }

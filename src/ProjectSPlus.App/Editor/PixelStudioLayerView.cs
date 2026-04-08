@@ -6,5 +6,7 @@ public sealed class PixelStudioLayerView
 
     public required bool IsVisible { get; init; }
 
+    public required bool IsLocked { get; init; }
+
     public required bool IsActive { get; init; }
 }

@@ -6,5 +6,7 @@ public sealed class PixelStudioLayerState
 
     public bool IsVisible { get; set; } = true;
 
+    public bool IsLocked { get; set; }
+
     public required int[] Pixels { get; set; }
 }
