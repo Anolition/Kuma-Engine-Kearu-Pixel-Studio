@@ -53,4 +53,6 @@ public sealed class EditorUiState
     public EditorProjectFormState ProjectForm { get; set; } = new();
 
     public PixelStudioViewState PixelStudio { get; set; } = new();
+
+    public EditorThemeStudioViewState ThemeStudio { get; set; } = new();
 }

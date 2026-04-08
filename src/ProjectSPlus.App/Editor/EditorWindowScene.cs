@@ -25,6 +25,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private readonly List<RecentProjectEntry> _recentProjects;
     private readonly PixelStudioState _pixelStudio;
     private readonly List<SavedPixelPalette> _savedPixelPalettes;
+    private readonly List<SavedEditorTheme> _customThemes;
     private readonly EditorUiState _uiState = new();
 
     private string _preferredFontFamily;
@@ -70,6 +71,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private bool _pixelToolsCollapsed;
     private bool _pixelSidebarCollapsed;
     private bool _pixelTimelineVisible;
+    private PixelStudioColorPickerMode _pixelColorPickerMode;
     private ShellDragMode _shellDragMode;
     private PixelStudioDragMode _pixelDragMode;
     private string _paletteRenameBuffer = string.Empty;
@@ -78,9 +80,15 @@ public sealed partial class EditorWindowScene : IWindowScene
     private float _pixelContextMenuY;
     private float _pixelToolSettingsPanelOffsetX = float.NaN;
     private float _pixelToolSettingsPanelOffsetY = float.NaN;
+    private bool _pixelNavigatorVisible = true;
+    private float _pixelNavigatorPanelOffsetX = float.NaN;
+    private float _pixelNavigatorPanelOffsetY = float.NaN;
+    private float _pixelNavigatorPanelWidth = float.NaN;
+    private float _pixelNavigatorPanelHeight = float.NaN;
+    private StandardCursor _activeCursor = StandardCursor.Arrow;
 
     public EditorWindowScene(EditorShell shell, string initialThemeName)
-        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true)
+        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true, PixelStudioColorPickerMode.RgbField, [])
     {
     }
 
@@ -96,7 +104,9 @@ public sealed partial class EditorWindowScene : IWindowScene
         EditorLayoutSettings layoutSettings,
         IReadOnlyList<SavedPixelPalette> savedPixelPalettes,
         string? activePixelPaletteId,
-        bool promptForPaletteGenerationAfterImport)
+        bool promptForPaletteGenerationAfterImport,
+        PixelStudioColorPickerMode pixelColorPickerMode,
+        IReadOnlyList<SavedEditorTheme> customThemes)
     {
         _shell = shell;
         _preferredFontFamily = ResolveAvailableFontFamily(preferredFontFamily);
@@ -105,7 +115,11 @@ public sealed partial class EditorWindowScene : IWindowScene
             ? GetDefaultProjectLibraryPath()
             : projectLibraryPath;
         _lastProjectPath = lastProjectPath;
-        _theme = EditorThemeCatalog.GetByName(initialThemeName);
+        _customThemes = customThemes
+            .Where(theme => !string.IsNullOrWhiteSpace(theme.Id))
+            .Select(CloneSavedEditorTheme)
+            .ToList();
+        _theme = EditorThemeCatalog.GetByName(initialThemeName, _customThemes);
         _typography = EditorTypographyCatalog.Create(_theme, _preferredFontFamily, fontSizePreset);
         _shortcuts = CreateShortcuts(shortcuts);
         _recentProjects = recentProjects
@@ -126,8 +140,14 @@ public sealed partial class EditorWindowScene : IWindowScene
         _pixelToolsCollapsed = normalizedLayout.PixelToolsPanelCollapsed;
         _pixelSidebarCollapsed = normalizedLayout.PixelSidebarCollapsed;
         _pixelTimelineVisible = normalizedLayout.PixelTimelineVisible;
+        _pixelColorPickerMode = pixelColorPickerMode;
         _pixelToolSettingsPanelOffsetX = normalizedLayout.PixelToolSettingsOffsetX ?? float.NaN;
         _pixelToolSettingsPanelOffsetY = normalizedLayout.PixelToolSettingsOffsetY ?? float.NaN;
+        _pixelNavigatorVisible = normalizedLayout.PixelNavigatorVisible;
+        _pixelNavigatorPanelOffsetX = normalizedLayout.PixelNavigatorOffsetX ?? float.NaN;
+        _pixelNavigatorPanelOffsetY = normalizedLayout.PixelNavigatorOffsetY ?? float.NaN;
+        _pixelNavigatorPanelWidth = normalizedLayout.PixelNavigatorWidth ?? float.NaN;
+        _pixelNavigatorPanelHeight = normalizedLayout.PixelNavigatorHeight ?? float.NaN;
         _savedPixelPalettes = savedPixelPalettes
             .Where(palette => !string.IsNullOrWhiteSpace(palette.Id))
             .Select(CloneSavedPixelPalette)
@@ -146,6 +166,7 @@ public sealed partial class EditorWindowScene : IWindowScene
                 TryLoadPixelStudioDocument(lastDocumentPath, out _);
             }
         }
+        ResetPaletteInteractionState();
         _uiState.ProjectForm = new EditorProjectFormState
         {
             ProjectLibraryPath = _projectLibraryPath,
@@ -180,7 +201,12 @@ public sealed partial class EditorWindowScene : IWindowScene
             _layoutSnapshot = EditorLayoutEngine.Create(_width, _height, _shell.Layout, _uiState);
         }
 
+        UpdateHeldTextEditing();
         UpdatePixelStudioPlayback();
+        if (CurrentPage == EditorPageKind.PixelStudio)
+        {
+            SyncPixelStudioHoverUiState();
+        }
 
         _renderer?.UpdateTheme(_theme);
         _renderer?.UpdateTypography(_typography);
@@ -191,6 +217,13 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void OnKeyDown(IKeyboard keyboard, Key key, int scancode)
     {
+        UpdatePixelStudioModifierState(keyboard, key, isPressed: true);
+
+        if (HandleThemeStudioKeyDown(key))
+        {
+            return;
+        }
+
         if (CurrentPage == EditorPageKind.PixelStudio && HandlePixelStudioTextKeyDown(key))
         {
             return;
@@ -206,7 +239,10 @@ public sealed partial class EditorWindowScene : IWindowScene
         {
             if (key == Key.Backspace)
             {
-                RemoveLastTextCharacter();
+                HandleTextBackspace(
+                    _uiState.ProjectForm.ActiveField == EditorTextField.ProjectLibraryPath
+                        ? EditableTextTarget.ProjectLibraryPath
+                        : EditableTextTarget.ProjectName);
                 return;
             }
 
@@ -218,6 +254,7 @@ public sealed partial class EditorWindowScene : IWindowScene
 
             if (key == Key.Escape)
             {
+                ClearAllSelectedText();
                 _uiState.ProjectForm.ActiveField = EditorTextField.None;
                 SyncUiState("Stopped editing project field.");
                 return;
@@ -274,11 +311,31 @@ public sealed partial class EditorWindowScene : IWindowScene
         if (MatchesShortcut(ShortcutAction.TogglePreferences, key))
         {
             OpenPage(EditorPageKind.Preferences);
+            return;
+        }
+
+        if (MatchesShortcut(ShortcutAction.CycleColorPickerMode, key))
+        {
+            CycleColorPickerMode();
+        }
+    }
+
+    public void OnKeyUp(IKeyboard keyboard, Key key, int scancode)
+    {
+        UpdatePixelStudioModifierState(keyboard, key, isPressed: false);
+        if (key == Key.Backspace)
+        {
+            StopBackspaceRepeat();
         }
     }
 
     public void OnKeyChar(IKeyboard keyboard, char character)
     {
+        if (HandleThemeStudioTextInput(character))
+        {
+            return;
+        }
+
         if (CurrentPage == EditorPageKind.PixelStudio && HandlePixelStudioTextInput(character))
         {
             return;
@@ -297,10 +354,20 @@ public sealed partial class EditorWindowScene : IWindowScene
         switch (_uiState.ProjectForm.ActiveField)
         {
             case EditorTextField.ProjectName:
+                if (ConsumeSelectedText(EditableTextTarget.ProjectName))
+                {
+                    _uiState.ProjectForm.ProjectName = string.Empty;
+                }
+
                 _uiState.ProjectForm.ProjectName += character;
                 SyncUiState("Editing project name.");
                 break;
             case EditorTextField.ProjectLibraryPath:
+                if (ConsumeSelectedText(EditableTextTarget.ProjectLibraryPath))
+                {
+                    _uiState.ProjectForm.ProjectLibraryPath = string.Empty;
+                }
+
                 _uiState.ProjectForm.ProjectLibraryPath += character;
                 _uiState.ProjectForm.FolderPickerPath = _uiState.ProjectForm.ProjectLibraryPath;
                 _uiState.ProjectForm.FolderPickerEntries = GetDirectoryEntries(_uiState.ProjectForm.ProjectLibraryPath);
@@ -318,6 +385,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
         float mouseX = mouse.Position.X;
         float mouseY = mouse.Position.Y;
+
+        if (CurrentPage == EditorPageKind.Preferences && HandleThemeStudioMouseDown(_layoutSnapshot, mouseX, mouseY, button))
+        {
+            return;
+        }
 
         if (button != MouseButton.Left)
         {
@@ -468,10 +540,13 @@ public sealed partial class EditorWindowScene : IWindowScene
     public void OnMouseUp(IMouse mouse, MouseButton button)
     {
         _shellDragMode = ShellDragMode.None;
+        HandleThemeStudioMouseUp(button);
         if (_layoutSnapshot?.PixelStudio is not null)
         {
             HandlePixelStudioMouseUp(button);
         }
+
+        UpdateMouseCursor(mouse, mouse.Position.X, mouse.Position.Y);
     }
 
     public void OnMouseMove(IMouse mouse, System.Numerics.Vector2 position)
@@ -483,25 +558,41 @@ public sealed partial class EditorWindowScene : IWindowScene
 
         if (HandleShellLayoutDrag(_layoutSnapshot, position.X))
         {
+            UpdateMouseCursor(mouse, position.X, position.Y);
+            return;
+        }
+
+        if (CurrentPage == EditorPageKind.Preferences)
+        {
+            HandleThemeStudioMouseMove(_layoutSnapshot, position.X, position.Y);
+            UpdateMouseCursor(mouse, position.X, position.Y);
             return;
         }
 
         if (_layoutSnapshot.PixelStudio is null)
         {
+            UpdateMouseCursor(mouse, position.X, position.Y);
             return;
         }
 
         if (HandlePixelStudioLayoutDrag(_layoutSnapshot.PixelStudio, position.X, position.Y))
         {
+            UpdateMouseCursor(mouse, position.X, position.Y);
             return;
         }
 
         HandlePixelStudioMouseMove(_layoutSnapshot.PixelStudio, position.X, position.Y);
+        UpdateMouseCursor(mouse, position.X, position.Y);
     }
 
     public void OnMouseScroll(IMouse mouse, ScrollWheel scrollWheel)
     {
         if (_layoutSnapshot is null)
+        {
+            return;
+        }
+
+        if (CurrentPage == EditorPageKind.Preferences && _uiState.ThemeStudio.Visible)
         {
             return;
         }
@@ -583,6 +674,121 @@ public sealed partial class EditorWindowScene : IWindowScene
             default:
                 return false;
         }
+    }
+
+    private void UpdateMouseCursor(IMouse mouse, float mouseX, float mouseY)
+    {
+        StandardCursor nextCursor = ResolveMouseCursor(mouseX, mouseY);
+        if (_activeCursor == nextCursor)
+        {
+            return;
+        }
+
+        try
+        {
+            if (mouse.Cursor is not null && mouse.Cursor.IsSupported(nextCursor))
+            {
+                mouse.Cursor.StandardCursor = nextCursor;
+                _activeCursor = nextCursor;
+            }
+        }
+        catch
+        {
+            _activeCursor = StandardCursor.Arrow;
+        }
+    }
+
+    private StandardCursor ResolveMouseCursor(float mouseX, float mouseY)
+    {
+        if (_layoutSnapshot is null)
+        {
+            return StandardCursor.Arrow;
+        }
+
+        if (_uiState.OpenMenuName is not null
+            || (CurrentPage == EditorPageKind.Projects && _uiState.ProjectForm.FolderPickerVisible)
+            || (CurrentPage == EditorPageKind.Preferences && _uiState.ThemeStudio.Visible))
+        {
+            return StandardCursor.Arrow;
+        }
+
+        if (_layoutSnapshot.LeftSplitterRect.Contains(mouseX, mouseY) || _layoutSnapshot.RightSplitterRect.Contains(mouseX, mouseY))
+        {
+            return StandardCursor.HResize;
+        }
+
+        if (CurrentPage != EditorPageKind.PixelStudio || _layoutSnapshot.PixelStudio is null)
+        {
+            return StandardCursor.Arrow;
+        }
+
+        PixelStudioLayoutSnapshot layout = _layoutSnapshot.PixelStudio;
+        if (layout.ContextMenuRect is not null || layout.CanvasResizeDialogRect is not null)
+        {
+            return StandardCursor.Arrow;
+        }
+
+        if (layout.LeftSplitterRect.Contains(mouseX, mouseY) || layout.RightSplitterRect.Contains(mouseX, mouseY))
+        {
+            return StandardCursor.HResize;
+        }
+
+        if (layout.BrushSizeSliderRect is not null && layout.BrushSizeSliderRect.Value.Contains(mouseX, mouseY))
+        {
+            return StandardCursor.VResize;
+        }
+
+        if (layout.PaletteAlphaSliderRect is not null && layout.PaletteAlphaSliderRect.Value.Contains(mouseX, mouseY))
+        {
+            return StandardCursor.HResize;
+        }
+
+        if (layout.NavigatorPanelRect is not null && layout.NavigatorPanelRect.Value.Contains(mouseX, mouseY))
+        {
+            if (TryGetNavigatorResizeCorner(layout.NavigatorPanelRect.Value, mouseX, mouseY, out NavigatorResizeCorner corner))
+            {
+                return corner is NavigatorResizeCorner.TopLeft or NavigatorResizeCorner.BottomRight
+                    ? StandardCursor.NwseResize
+                    : StandardCursor.NeswResize;
+            }
+
+            return StandardCursor.Hand;
+        }
+
+        if (layout.ToolSettingsPanelRect.Width > 40f && layout.ToolSettingsPanelRect.Contains(mouseX, mouseY))
+        {
+            return StandardCursor.ResizeAll;
+        }
+
+        if (layout.CanvasClipRect.Contains(mouseX, mouseY))
+        {
+            if (_pixelStudio.ActiveTool == PixelStudioToolKind.Hand || _pixelDragMode == PixelStudioDragMode.PanCanvas)
+            {
+                return StandardCursor.Hand;
+            }
+
+            if ((_selectionCommitted || _selectionMoveActive)
+                && TryGetCanvasCellCoordinates(layout, mouseX, mouseY, out int selectionCellX, out int selectionCellY, clampToCanvas: true)
+                && IsWithinCurrentSelection(selectionCellX, selectionCellY))
+            {
+                return StandardCursor.Hand;
+            }
+
+            return _pixelStudio.ActiveTool switch
+            {
+                PixelStudioToolKind.Select => StandardCursor.Crosshair,
+                PixelStudioToolKind.Pencil => StandardCursor.Crosshair,
+                PixelStudioToolKind.Eraser => StandardCursor.Crosshair,
+                PixelStudioToolKind.Line => StandardCursor.Crosshair,
+                PixelStudioToolKind.Rectangle => StandardCursor.Crosshair,
+                PixelStudioToolKind.Ellipse => StandardCursor.Crosshair,
+                PixelStudioToolKind.Fill => StandardCursor.Crosshair,
+                PixelStudioToolKind.Picker => StandardCursor.Crosshair,
+                _ => StandardCursor.Arrow
+            };
+        }
+
+        return StandardCursor.Arrow;
     }
 
     private bool HandleShellScroll(EditorLayoutSnapshot layout, float mouseX, float mouseY, ScrollWheel scrollWheel)
@@ -669,10 +875,13 @@ public sealed partial class EditorWindowScene : IWindowScene
             Height = safeHeight,
             StartMaximized = window.WindowState == WindowState.Maximized
         };
+        string persistedThemeName = _themeStudioVisible && _themeStudioOriginalTheme is not null
+            ? _themeStudioOriginalTheme.Name
+            : _theme.Name;
 
         EditorSettings editorSettings = new()
         {
-            ThemeName = _theme.Name,
+            ThemeName = persistedThemeName,
             PreferredFontFamily = _preferredFontFamily,
             FontSizePreset = _fontSizePreset,
             Shortcuts = BuildShortcutBindings(),
@@ -691,11 +900,18 @@ public sealed partial class EditorWindowScene : IWindowScene
                 PixelSidebarCollapsed = _pixelSidebarCollapsed,
                 PixelTimelineVisible = _pixelTimelineVisible,
                 PixelToolSettingsOffsetX = float.IsFinite(_pixelToolSettingsPanelOffsetX) ? _pixelToolSettingsPanelOffsetX : null,
-                PixelToolSettingsOffsetY = float.IsFinite(_pixelToolSettingsPanelOffsetY) ? _pixelToolSettingsPanelOffsetY : null
+                PixelToolSettingsOffsetY = float.IsFinite(_pixelToolSettingsPanelOffsetY) ? _pixelToolSettingsPanelOffsetY : null,
+                PixelNavigatorVisible = _pixelNavigatorVisible,
+                PixelNavigatorOffsetX = float.IsFinite(_pixelNavigatorPanelOffsetX) ? _pixelNavigatorPanelOffsetX : null,
+                PixelNavigatorOffsetY = float.IsFinite(_pixelNavigatorPanelOffsetY) ? _pixelNavigatorPanelOffsetY : null,
+                PixelNavigatorWidth = float.IsFinite(_pixelNavigatorPanelWidth) ? _pixelNavigatorPanelWidth : null,
+                PixelNavigatorHeight = float.IsFinite(_pixelNavigatorPanelHeight) ? _pixelNavigatorPanelHeight : null
             },
             PixelPalettes = _savedPixelPalettes.Select(CloneSavedPixelPalette).ToList(),
             ActivePixelPaletteId = _activePixelPaletteId,
-            PromptForPaletteGenerationAfterImport = _promptForPaletteGenerationAfterImport
+            PromptForPaletteGenerationAfterImport = _promptForPaletteGenerationAfterImport,
+            PixelColorPickerMode = _pixelColorPickerMode,
+            CustomThemes = _customThemes.Select(CloneSavedEditorTheme).ToList()
         };
 
         return new AppSettings
@@ -714,14 +930,12 @@ public sealed partial class EditorWindowScene : IWindowScene
     private EditorPageKind CurrentPage =>
         _tabs.FirstOrDefault(tab => tab.Id == _uiState.SelectedTabId)?.Page ?? EditorPageKind.Home;
 
-    private string CurrentThemeLabel =>
-        string.Equals(_theme.Name, EditorThemeCatalog.DarkThemeName, StringComparison.OrdinalIgnoreCase)
-            ? "Dark"
-            : string.Equals(_theme.Name, EditorThemeCatalog.LightThemeName, StringComparison.OrdinalIgnoreCase)
-                ? "Light"
-                : string.Equals(_theme.Name, EditorThemeCatalog.KearuThemeName, StringComparison.OrdinalIgnoreCase)
-                    ? "Kearu"
-                    : "Kuma";
+    private string CurrentThemeLabel => _theme.DisplayName;
+
+    private string CurrentColorPickerLabel =>
+        _pixelColorPickerMode == PixelStudioColorPickerMode.Wheel
+            ? "Wheel"
+            : "RGB+Field";
 
     private void SyncUiState(string? overrideStatus = null)
     {
@@ -742,7 +956,10 @@ public sealed partial class EditorWindowScene : IWindowScene
         _uiState.Tabs = _tabs.ToList();
         _uiState.RecentProjects = _recentProjects.ToList();
         _uiState.Shortcuts = _shortcuts;
+        _uiState.ProjectForm.ProjectNameSelected = _uiState.ProjectForm.ActiveField == EditorTextField.ProjectName && IsTextSelected(EditableTextTarget.ProjectName);
+        _uiState.ProjectForm.ProjectLibraryPathSelected = _uiState.ProjectForm.ActiveField == EditorTextField.ProjectLibraryPath && IsTextSelected(EditableTextTarget.ProjectLibraryPath);
         _uiState.PixelStudio = BuildPixelStudioViewState();
+        _uiState.ThemeStudio = BuildThemeStudioViewState();
         _uiState.PreferencesVisible = CurrentPage == EditorPageKind.Preferences;
         if (string.IsNullOrWhiteSpace(_uiState.ProjectForm.ProjectLibraryPath))
         {
@@ -755,8 +972,8 @@ public sealed partial class EditorWindowScene : IWindowScene
         _uiState.ProjectForm.FolderPickerEntries = GetDirectoryEntries(_uiState.ProjectForm.FolderPickerPath);
 
         string shortcutSummary = CurrentPage == EditorPageKind.PixelStudio
-            ? $"{EditorBranding.PixelToolName}: Ctrl+Z Undo | Ctrl+Y Redo | Wheel zooms | Middle drag pans | Right-click layers and palettes for options"
-            : $"Theme: {GetKeyLabel(ShortcutAction.ToggleTheme)} | Size: {GetKeyLabel(ShortcutAction.CycleFontSize)} | Font: {GetKeyLabel(ShortcutAction.CycleFontFamily)} | Prefs: {GetKeyLabel(ShortcutAction.TogglePreferences)}";
+            ? $"{EditorBranding.PixelToolName}: Ctrl+Z Undo | Ctrl+Y Redo | Swap: {GetKeyLabel(ShortcutAction.SwapSecondaryColor)} | Wheel zooms | Middle drag pans | Picker: {GetKeyLabel(ShortcutAction.CycleColorPickerMode)}"
+            : $"Theme: {GetKeyLabel(ShortcutAction.ToggleTheme)} | Size: {GetKeyLabel(ShortcutAction.CycleFontSize)} | Font: {GetKeyLabel(ShortcutAction.CycleFontFamily)} | Picker: {GetKeyLabel(ShortcutAction.CycleColorPickerMode)} | Prefs: {GetKeyLabel(ShortcutAction.TogglePreferences)}";
         _uiState.StatusText = overrideStatus ?? shortcutSummary;
         _shell.SetStatus(_uiState.StatusText);
 
@@ -795,7 +1012,7 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     private void ToggleTheme()
     {
-        _theme = EditorThemeCatalog.Toggle(_theme);
+        _theme = EditorThemeCatalog.Toggle(_theme, _customThemes);
         _typography = EditorTypographyCatalog.Create(_theme, _preferredFontFamily, _fontSizePreset);
         SyncUiState();
         UpdateWindowTitle();
@@ -822,6 +1039,15 @@ public sealed partial class EditorWindowScene : IWindowScene
         _preferredFontFamily = availableFonts[nextIndex];
         _typography = EditorTypographyCatalog.Create(_theme, _preferredFontFamily, _fontSizePreset);
         SyncUiState();
+        _renderer?.InvalidateTextCache();
+    }
+
+    private void CycleColorPickerMode()
+    {
+        _pixelColorPickerMode = _pixelColorPickerMode == PixelStudioColorPickerMode.RgbField
+            ? PixelStudioColorPickerMode.Wheel
+            : PixelStudioColorPickerMode.RgbField;
+        SyncUiState($"Color picker set to {CurrentColorPickerLabel}.");
         _renderer?.InvalidateTextCache();
     }
 
@@ -863,6 +1089,9 @@ public sealed partial class EditorWindowScene : IWindowScene
                 break;
             case EditorMenuAction.CycleFontFamily:
                 CycleFontFamily();
+                break;
+            case EditorMenuAction.CycleColorPickerMode:
+                CycleColorPickerMode();
                 break;
         }
     }
@@ -989,6 +1218,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _uiState.ProjectForm.ProjectName = $"{projectName}{suffix switch { > 1 => suffix.ToString(), _ => string.Empty }}";
         _uiState.ProjectForm.ActiveField = EditorTextField.None;
         _uiState.ProjectForm.FolderPickerVisible = false;
+        ClearAllSelectedText();
         OpenPage(EditorPageKind.Projects, $"Created {entry.Name}");
     }
 
@@ -1068,7 +1298,9 @@ public sealed partial class EditorWindowScene : IWindowScene
             ToggleTheme = GetKeyLabel(ShortcutAction.ToggleTheme),
             CycleFontSize = GetKeyLabel(ShortcutAction.CycleFontSize),
             CycleFontFamily = GetKeyLabel(ShortcutAction.CycleFontFamily),
-            TogglePreferences = GetKeyLabel(ShortcutAction.TogglePreferences)
+            TogglePreferences = GetKeyLabel(ShortcutAction.TogglePreferences),
+            CycleColorPickerMode = GetKeyLabel(ShortcutAction.CycleColorPickerMode),
+            SwapSecondaryColor = GetKeyLabel(ShortcutAction.SwapSecondaryColor)
         };
     }
 
@@ -1080,7 +1312,7 @@ public sealed partial class EditorWindowScene : IWindowScene
                 {
                     Action = ShortcutAction.ToggleTheme,
                     Label = "Toggle Theme",
-                    Description = "Cycle between Dark, Light, Kuma, and Kearu editor themes.",
+                    Description = "Cycle between built-in and saved custom editor themes.",
                     Key = ParseKey(shortcuts.ToggleTheme, Key.F6)
                 },
             new EditorShortcutBinding
@@ -1103,6 +1335,20 @@ public sealed partial class EditorWindowScene : IWindowScene
                 Label = "Toggle Preferences",
                 Description = "Show or hide the preferences view.",
                 Key = ParseKey(shortcuts.TogglePreferences, Key.F9)
+            },
+            new EditorShortcutBinding
+            {
+                Action = ShortcutAction.CycleColorPickerMode,
+                Label = "Cycle Color Picker",
+                Description = "Switch between RGB+Field and Wheel color pickers in Kearu Studio.",
+                Key = ParseKey(shortcuts.CycleColorPickerMode, Key.F10)
+            },
+            new EditorShortcutBinding
+            {
+                Action = ShortcutAction.SwapSecondaryColor,
+                Label = "Swap Colors",
+                Description = "Swap active and secondary palette colors in Kearu Studio.",
+                Key = ParseKey(shortcuts.SwapSecondaryColor, Key.X)
             }
         ];
     }
@@ -1153,10 +1399,12 @@ public sealed partial class EditorWindowScene : IWindowScene
         {
             case ProjectFormAction.ActivateProjectName:
                 _uiState.ProjectForm.ActiveField = EditorTextField.ProjectName;
+                SelectAllText(EditableTextTarget.ProjectName);
                 SyncUiState("Editing project name.");
                 break;
             case ProjectFormAction.ActivateProjectLibraryPath:
                 _uiState.ProjectForm.ActiveField = EditorTextField.ProjectLibraryPath;
+                SelectAllText(EditableTextTarget.ProjectLibraryPath);
                 SyncUiState("Editing project library path.");
                 break;
             case ProjectFormAction.CreateProject:
@@ -1172,6 +1420,10 @@ public sealed partial class EditorWindowScene : IWindowScene
                 _uiState.ProjectForm.FolderPickerVisible = !_uiState.ProjectForm.FolderPickerVisible;
                 _uiState.ProjectForm.FolderPickerPath = NormalizeDirectoryPath(_uiState.ProjectForm.ProjectLibraryPath);
                 _uiState.ProjectForm.FolderPickerEntries = GetDirectoryEntries(_uiState.ProjectForm.FolderPickerPath);
+                if (_uiState.ProjectForm.FolderPickerVisible)
+                {
+                    ClearAllSelectedText();
+                }
                 SyncUiState(_uiState.ProjectForm.FolderPickerVisible ? "Opened folder picker." : "Closed folder picker.");
                 break;
         }
@@ -1212,6 +1464,12 @@ public sealed partial class EditorWindowScene : IWindowScene
             case EditorPreferenceAction.CycleFontFamily:
                 CycleFontFamily();
                 break;
+            case EditorPreferenceAction.CycleColorPickerMode:
+                CycleColorPickerMode();
+                break;
+            case EditorPreferenceAction.OpenThemeStudio:
+                OpenThemeStudio();
+                break;
         }
     }
 
@@ -1236,6 +1494,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _uiState.ProjectForm.FolderPickerPath = normalized;
         _uiState.ProjectForm.FolderPickerEntries = GetDirectoryEntries(normalized);
         _uiState.ProjectForm.ActiveField = EditorTextField.None;
+        ClearAllSelectedText();
         SyncUiState($"Project library set to {normalized}");
     }
 

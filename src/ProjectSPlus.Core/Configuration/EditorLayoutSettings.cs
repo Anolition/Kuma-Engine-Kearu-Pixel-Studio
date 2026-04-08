@@ -26,6 +26,16 @@ public sealed class EditorLayoutSettings
 
     public float? PixelToolSettingsOffsetY { get; init; }
 
+    public bool PixelNavigatorVisible { get; init; } = true;
+
+    public float? PixelNavigatorOffsetX { get; init; }
+
+    public float? PixelNavigatorOffsetY { get; init; }
+
+    public float? PixelNavigatorWidth { get; init; }
+
+    public float? PixelNavigatorHeight { get; init; }
+
     public EditorLayoutSettings Normalize()
     {
         return new EditorLayoutSettings
@@ -41,7 +51,12 @@ public sealed class EditorLayoutSettings
             PixelToolSettingsDockSide = PixelToolSettingsDockSide,
             PixelTimelineVisible = PixelTimelineVisible,
             PixelToolSettingsOffsetX = PixelToolSettingsOffsetX,
-            PixelToolSettingsOffsetY = PixelToolSettingsOffsetY
+            PixelToolSettingsOffsetY = PixelToolSettingsOffsetY,
+            PixelNavigatorVisible = PixelNavigatorVisible,
+            PixelNavigatorOffsetX = PixelNavigatorOffsetX,
+            PixelNavigatorOffsetY = PixelNavigatorOffsetY,
+            PixelNavigatorWidth = PixelNavigatorWidth,
+            PixelNavigatorHeight = PixelNavigatorHeight
         };
     }
 }

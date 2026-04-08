@@ -28,6 +28,22 @@ public sealed class PixelStudioState
 
     public PixelStudioToolKind ActiveTool { get; set; } = PixelStudioToolKind.Pencil;
 
+    public PixelStudioSelectionMode SelectionMode { get; set; } = PixelStudioSelectionMode.Box;
+
+    public bool HasSelection { get; set; }
+
+    public bool SelectionCommitted { get; set; }
+
+    public int SelectionStartX { get; set; }
+
+    public int SelectionStartY { get; set; }
+
+    public int SelectionEndX { get; set; }
+
+    public int SelectionEndY { get; set; }
+
+    public List<int> SelectionMaskIndices { get; set; } = [];
+
     public int ActivePaletteIndex { get; set; } = 0;
 
     public int ActiveFrameIndex { get; set; }

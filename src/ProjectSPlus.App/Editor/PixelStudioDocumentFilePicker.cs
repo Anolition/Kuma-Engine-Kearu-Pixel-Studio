@@ -8,6 +8,7 @@ public static class PixelStudioDocumentFilePicker
 {
     private const string FileFilter = "Kearu Studio Sprite (*.kearu)|*.kearu|JSON Sprite (*.json)|*.json";
     private const string PngFilter = "PNG Image (*.png)|*.png";
+    private const string PaletteFilter = "Kearu Palette (*.kpal)|*.kpal|JSON Palette (*.json)|*.json";
     private const string WindowsDialogDpiSetupScript =
         "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class NativeMethods { [DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware(); }'; " +
         "[NativeMethods]::SetProcessDPIAware() | Out-Null; " +
@@ -34,19 +35,39 @@ public static class PixelStudioDocumentFilePicker
             : null;
     }
 
+    public static string? ShowPaletteOpenDialog(string initialDirectory)
+    {
+        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? ShowWindowsOpenDialog(initialDirectory, PaletteFilter)
+            : null;
+    }
+
+    public static string? ShowPaletteSaveDialog(string initialDirectory, string suggestedFileName)
+    {
+        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? ShowWindowsSaveDialog(initialDirectory, suggestedFileName, PaletteFilter, "kpal")
+            : null;
+    }
+
     private static string? ShowWindowsOpenDialog(string initialDirectory)
+    {
+        return ShowWindowsOpenDialog(initialDirectory, FileFilter);
+    }
+
+    private static string? ShowWindowsOpenDialog(string initialDirectory, string filter)
     {
         string directory = Directory.Exists(initialDirectory)
             ? initialDirectory
             : Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
 
         string escapedDirectory = directory.Replace("'", "''", StringComparison.Ordinal);
+        string escapedFilter = filter.Replace("'", "''", StringComparison.Ordinal);
         string script =
             "$ErrorActionPreference='Stop'; " +
             "Add-Type -AssemblyName System.Windows.Forms; " +
             WindowsDialogDpiSetupScript +
             "$dialog = New-Object System.Windows.Forms.OpenFileDialog; " +
-            $"$dialog.Filter = '{FileFilter}'; " +
+            $"$dialog.Filter = '{escapedFilter}'; " +
             "$dialog.Multiselect = $false; " +
             $"$dialog.InitialDirectory = '{escapedDirectory}'; " +
             "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.FileName) }";

@@ -4,6 +4,8 @@ public sealed class EditorTheme
 {
     public required string Name { get; init; }
 
+    public required string DisplayName { get; init; }
+
     public required ThemeColor Background { get; init; }
 
     public required ThemeColor MenuBar { get; init; }

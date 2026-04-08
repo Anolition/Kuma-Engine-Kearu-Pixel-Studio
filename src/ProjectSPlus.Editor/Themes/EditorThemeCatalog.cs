@@ -1,3 +1,5 @@
+using ProjectSPlus.Core.Configuration;
+
 namespace ProjectSPlus.Editor.Themes;
 
 public static class EditorThemeCatalog
@@ -7,7 +9,7 @@ public static class EditorThemeCatalog
     public const string KumaThemeName = "ProjectSPlus.Kuma";
     public const string KearuThemeName = "ProjectSPlus.Kearu";
 
-    public static EditorTheme GetByName(string? themeName)
+    public static EditorTheme GetByName(string? themeName, IReadOnlyList<SavedEditorTheme>? customThemes = null)
     {
         if (string.Equals(themeName, DarkThemeName, StringComparison.OrdinalIgnoreCase))
         {
@@ -29,27 +31,24 @@ public static class EditorThemeCatalog
             return CreateKearuTheme();
         }
 
+        if (TryCreateCustomTheme(themeName, customThemes, out EditorTheme? customTheme))
+        {
+            return customTheme!;
+        }
+
         return CreateKumaTheme();
     }
 
-    public static EditorTheme Toggle(EditorTheme theme)
+    public static EditorTheme Toggle(EditorTheme theme, IReadOnlyList<SavedEditorTheme>? customThemes = null)
     {
-        if (string.Equals(theme.Name, DarkThemeName, StringComparison.OrdinalIgnoreCase))
+        List<EditorTheme> themes = CreateThemeCycle(customThemes);
+        int themeIndex = themes.FindIndex(candidate => string.Equals(candidate.Name, theme.Name, StringComparison.OrdinalIgnoreCase));
+        if (themeIndex < 0)
         {
-            return CreateLightTheme();
+            return themes[0];
         }
 
-        if (string.Equals(theme.Name, LightThemeName, StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateKumaTheme();
-        }
-
-        if (string.Equals(theme.Name, KumaThemeName, StringComparison.OrdinalIgnoreCase))
-        {
-            return CreateKearuTheme();
-        }
-
-        return CreateDarkTheme();
+        return themes[(themeIndex + 1) % themes.Count];
     }
 
     private static EditorTheme CreateDarkTheme()
@@ -57,6 +56,7 @@ public static class EditorThemeCatalog
         return new EditorTheme
         {
             Name = DarkThemeName,
+            DisplayName = "Dark",
             Background = new ThemeColor(0.09f, 0.10f, 0.12f),
             MenuBar = new ThemeColor(0.12f, 0.14f, 0.18f),
             SidePanel = new ThemeColor(0.14f, 0.16f, 0.20f),
@@ -75,6 +75,7 @@ public static class EditorThemeCatalog
         return new EditorTheme
         {
             Name = LightThemeName,
+            DisplayName = "Light",
             Background = new ThemeColor(0.90f, 0.92f, 0.95f),
             MenuBar = new ThemeColor(0.82f, 0.85f, 0.90f),
             SidePanel = new ThemeColor(0.86f, 0.89f, 0.93f),
@@ -93,6 +94,7 @@ public static class EditorThemeCatalog
         return new EditorTheme
         {
             Name = KumaThemeName,
+            DisplayName = "Kuma",
             Background = new ThemeColor(0.10f, 0.08f, 0.06f),
             MenuBar = new ThemeColor(0.18f, 0.13f, 0.09f),
             SidePanel = new ThemeColor(0.23f, 0.17f, 0.12f),
@@ -111,6 +113,7 @@ public static class EditorThemeCatalog
         return new EditorTheme
         {
             Name = KearuThemeName,
+            DisplayName = "Kearu",
             Background = new ThemeColor(0.05f, 0.10f, 0.08f),
             MenuBar = new ThemeColor(0.08f, 0.16f, 0.12f),
             SidePanel = new ThemeColor(0.10f, 0.20f, 0.15f),
@@ -122,5 +125,69 @@ public static class EditorThemeCatalog
             Divider = new ThemeColor(0.52f, 0.41f, 0.31f),
             Accent = new ThemeColor(0.84f, 0.54f, 0.66f)
         };
+    }
+
+    private static bool TryCreateCustomTheme(string? themeName, IReadOnlyList<SavedEditorTheme>? customThemes, out EditorTheme? theme)
+    {
+        theme = null;
+        if (string.IsNullOrWhiteSpace(themeName) || customThemes is null)
+        {
+            return false;
+        }
+
+        SavedEditorTheme? customTheme = customThemes.FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, themeName, StringComparison.OrdinalIgnoreCase));
+        if (customTheme is null)
+        {
+            return false;
+        }
+
+        theme = new EditorTheme
+        {
+            Name = customTheme.Id,
+            DisplayName = string.IsNullOrWhiteSpace(customTheme.Name) ? "Custom Theme" : customTheme.Name.Trim(),
+            Background = ToThemeColor(customTheme.Background),
+            MenuBar = ToThemeColor(customTheme.MenuBar),
+            SidePanel = ToThemeColor(customTheme.SidePanel),
+            Workspace = ToThemeColor(customTheme.Workspace),
+            TabStrip = ToThemeColor(customTheme.TabStrip),
+            TabActive = ToThemeColor(customTheme.TabActive),
+            TabInactive = ToThemeColor(customTheme.TabInactive),
+            StatusBar = ToThemeColor(customTheme.StatusBar),
+            Divider = ToThemeColor(customTheme.Divider),
+            Accent = ToThemeColor(customTheme.Accent)
+        };
+        return true;
+    }
+
+    private static List<EditorTheme> CreateThemeCycle(IReadOnlyList<SavedEditorTheme>? customThemes)
+    {
+        List<EditorTheme> themes =
+        [
+            CreateDarkTheme(),
+            CreateLightTheme(),
+            CreateKumaTheme(),
+            CreateKearuTheme()
+        ];
+
+        if (customThemes is null)
+        {
+            return themes;
+        }
+
+        foreach (SavedEditorTheme customTheme in customThemes)
+        {
+            if (TryCreateCustomTheme(customTheme.Id, customThemes, out EditorTheme? theme) && theme is not null)
+            {
+                themes.Add(theme);
+            }
+        }
+
+        return themes;
+    }
+
+    private static ThemeColor ToThemeColor(PaletteColorSetting color)
+    {
+        return new ThemeColor(color.R / 255f, color.G / 255f, color.B / 255f, color.A / 255f);
     }
 }

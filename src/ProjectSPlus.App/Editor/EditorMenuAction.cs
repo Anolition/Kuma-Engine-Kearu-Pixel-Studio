@@ -12,5 +12,6 @@ public enum EditorMenuAction
     NewScratchTab,
     ToggleTheme,
     CycleFontSize,
-    CycleFontFamily
+    CycleFontFamily,
+    CycleColorPickerMode
 }

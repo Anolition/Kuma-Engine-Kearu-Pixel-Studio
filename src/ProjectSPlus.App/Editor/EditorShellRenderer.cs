@@ -284,15 +284,50 @@ public sealed class EditorShellRenderer : IDisposable
             UiRect paletteBodyRect = GetPixelPanelBodyRect(layout.PalettePanelRect);
             ThemeColor paletteSectionColor = Blend(_theme.SidePanel, _theme.Workspace, 0.26f);
             ActionRect<PixelStudioAction> addSwatchButton = layout.PaletteButtons.First(button => button.Action == PixelStudioAction.AddPaletteSwatch);
-            float swatchSectionY = layout.ActiveColorRect.Y + layout.ActiveColorRect.Height + 28;
-            UiRect activeSectionRect = new(paletteBodyRect.X, paletteBodyRect.Y, paletteBodyRect.Width, Math.Max((layout.ActiveColorRect.Y + layout.ActiveColorRect.Height) - paletteBodyRect.Y + 8, 112));
+            float pickerBottom = layout.RecentColorSwatches.Count > 0
+                ? layout.RecentColorSwatches.Max(entry => entry.Rect.Y + entry.Rect.Height)
+                : layout.PaletteAlphaSliderRect is not null
+                    ? layout.PaletteAlphaSliderRect.Value.Y + layout.PaletteAlphaSliderRect.Value.Height
+                    : layout.PaletteColorWheelRect is not null
+                        ? layout.PaletteColorWheelRect.Value.Y + layout.PaletteColorWheelRect.Value.Height
+                        : layout.PaletteColorFieldRect is not null
+                            ? layout.PaletteColorFieldRect.Value.Y + layout.PaletteColorFieldRect.Value.Height
+                            : layout.ActiveColorRect.Y + layout.ActiveColorRect.Height;
+            float swatchSectionY = pickerBottom + 24;
+            float activeSectionBottom = pickerBottom;
+            UiRect activeSectionRect = new(paletteBodyRect.X, paletteBodyRect.Y, paletteBodyRect.Width, Math.Max(activeSectionBottom - paletteBodyRect.Y + 10, 132));
             UiRect swatchSectionRect = new(paletteBodyRect.X, swatchSectionY, paletteBodyRect.Width, Math.Max(addSwatchButton.Rect.Y - swatchSectionY - 14, 52));
             UiRect actionSectionRect = new(paletteBodyRect.X, addSwatchButton.Rect.Y - 24, paletteBodyRect.Width, addSwatchButton.Rect.Height + 32);
             DrawUiRect(activeSectionRect, paletteSectionColor);
             DrawUiRect(swatchSectionRect, paletteSectionColor);
             DrawUiRect(actionSectionRect, paletteSectionColor);
-            DrawUiRect(layout.ActiveColorRect, _theme.Divider);
-            DrawUiRect(new UiRect(layout.ActiveColorRect.X + 4, layout.ActiveColorRect.Y + 4, layout.ActiveColorRect.Width - 8, layout.ActiveColorRect.Height - 8), _uiState.PixelStudio.ActiveColor);
+            DrawPaletteColorSwatch(layout.ActiveColorRect, _uiState.PixelStudio.ActiveColor, cornerRadius: 10f);
+            DrawPaletteColorSwatch(layout.SecondaryColorRect, _uiState.PixelStudio.SecondaryColor, cornerRadius: 8f);
+            if (layout.PaletteColorFieldRect is not null)
+            {
+                DrawPaletteColorField(layout.PaletteColorFieldRect.Value, _uiState.PixelStudio.ActiveColor);
+            }
+            if (layout.PaletteColorWheelRect is not null && layout.PaletteColorWheelFieldRect is not null)
+            {
+                DrawPaletteColorWheel(layout.PaletteColorWheelRect.Value, layout.PaletteColorWheelFieldRect.Value, _uiState.PixelStudio.ActiveColor);
+            }
+            if (layout.PaletteAlphaSliderRect is not null)
+            {
+                DrawPaletteAlphaSlider(
+                    layout.PaletteAlphaSliderRect.Value,
+                    layout.PaletteAlphaFillRect,
+                    layout.PaletteAlphaKnobRect,
+                    _uiState.PixelStudio.ActiveColor);
+            }
+            foreach (IndexedRect recentColor in layout.RecentColorSwatches)
+            {
+                if (recentColor.Index < 0 || recentColor.Index >= _uiState.PixelStudio.RecentColors.Count)
+                {
+                    continue;
+                }
+
+                DrawPaletteColorSwatch(recentColor.Rect, _uiState.PixelStudio.RecentColors[recentColor.Index], cornerRadius: 6f);
+            }
         }
         DrawUiRect(layout.PlaybackPreviewRect, _theme.TabInactive);
 
@@ -312,6 +347,11 @@ public sealed class EditorShellRenderer : IDisposable
         }
 
         foreach (ActionRect<PixelStudioAction> button in layout.CanvasButtons)
+        {
+            DrawUiRect(button.Rect, ResolvePixelActionColor(button.Action));
+        }
+
+        foreach (ActionRect<PixelStudioAction> button in layout.SelectionButtons)
         {
             DrawUiRect(button.Rect, ResolvePixelActionColor(button.Action));
         }
@@ -445,15 +485,60 @@ public sealed class EditorShellRenderer : IDisposable
 
         if (_uiState.PixelStudio.HasSelection)
         {
-            UiRect selectionRect = new(
-                layout.CanvasViewportRect.X + (_uiState.PixelStudio.SelectionX * cellSize),
-                layout.CanvasViewportRect.Y + (_uiState.PixelStudio.SelectionY * cellSize),
-                Math.Max(_uiState.PixelStudio.SelectionWidth * cellSize, 1),
-                Math.Max(_uiState.PixelStudio.SelectionHeight * cellSize, 1));
-            DrawUiRectClipped(new UiRect(selectionRect.X, selectionRect.Y, selectionRect.Width, 2), _theme.Accent, layout.CanvasClipRect);
-            DrawUiRectClipped(new UiRect(selectionRect.X, selectionRect.Y + selectionRect.Height - 2, selectionRect.Width, 2), _theme.Accent, layout.CanvasClipRect);
-            DrawUiRectClipped(new UiRect(selectionRect.X, selectionRect.Y, 2, selectionRect.Height), _theme.Accent, layout.CanvasClipRect);
-            DrawUiRectClipped(new UiRect(selectionRect.X + selectionRect.Width - 2, selectionRect.Y, 2, selectionRect.Height), _theme.Accent, layout.CanvasClipRect);
+            DrawCanvasSelectionOutline(layout, canvasWidth, canvasHeight, cellSize);
+        }
+
+        if (layout.NavigatorPanelRect is not null && layout.NavigatorPreviewRect is not null)
+        {
+            ThemeColor floatingPanelColor = new(0.06f, 0.06f, 0.07f, 0.94f);
+            ThemeColor floatingPanelInsetColor = new(0.10f, 0.10f, 0.11f, 0.98f);
+            DrawRoundedUiRect(layout.NavigatorPanelRect.Value, floatingPanelColor, 14f);
+            DrawRoundedUiRect(
+                new UiRect(layout.NavigatorPanelRect.Value.X + 1, layout.NavigatorPanelRect.Value.Y + 1, Math.Max(layout.NavigatorPanelRect.Value.Width - 2, 0), Math.Max(layout.NavigatorPanelRect.Value.Height - 2, 0)),
+                floatingPanelInsetColor,
+                13f);
+            ThemeColor navigatorHandleColor = Blend(_theme.Accent, _theme.TabActive, 0.44f);
+            const float navigatorHandleSize = 8f;
+            DrawRoundedUiRect(new UiRect(layout.NavigatorPanelRect.Value.X + 6, layout.NavigatorPanelRect.Value.Y + 6, navigatorHandleSize, navigatorHandleSize), navigatorHandleColor, 3f);
+            DrawRoundedUiRect(new UiRect(layout.NavigatorPanelRect.Value.X + layout.NavigatorPanelRect.Value.Width - navigatorHandleSize - 6, layout.NavigatorPanelRect.Value.Y + 6, navigatorHandleSize, navigatorHandleSize), navigatorHandleColor, 3f);
+            DrawRoundedUiRect(new UiRect(layout.NavigatorPanelRect.Value.X + 6, layout.NavigatorPanelRect.Value.Y + layout.NavigatorPanelRect.Value.Height - navigatorHandleSize - 6, navigatorHandleSize, navigatorHandleSize), navigatorHandleColor, 3f);
+            DrawRoundedUiRect(new UiRect(layout.NavigatorPanelRect.Value.X + layout.NavigatorPanelRect.Value.Width - navigatorHandleSize - 6, layout.NavigatorPanelRect.Value.Y + layout.NavigatorPanelRect.Value.Height - navigatorHandleSize - 6, navigatorHandleSize, navigatorHandleSize), navigatorHandleColor, 3f);
+            DrawPixelPreview(
+                "pixelstudio-navigator-preview",
+                layout.NavigatorPreviewRect.Value,
+                _uiState.PixelStudio.CompositePixels,
+                canvasWidth,
+                canvasHeight,
+                _uiState.PixelStudio.CompositePixelsRevision);
+
+            UiRect navigatorImageRect = GetPixelPreviewImageRect(layout.NavigatorPreviewRect.Value, canvasWidth, canvasHeight);
+            if (navigatorImageRect.Width > 0f && navigatorImageRect.Height > 0f)
+            {
+                float viewportPixelLeft = Math.Max(layout.CanvasClipRect.X, layout.CanvasViewportRect.X) - layout.CanvasViewportRect.X;
+                float viewportPixelTop = Math.Max(layout.CanvasClipRect.Y, layout.CanvasViewportRect.Y) - layout.CanvasViewportRect.Y;
+                float viewportPixelRight = Math.Min(layout.CanvasClipRect.X + layout.CanvasClipRect.Width, layout.CanvasViewportRect.X + layout.CanvasViewportRect.Width) - layout.CanvasViewportRect.X;
+                float viewportPixelBottom = Math.Min(layout.CanvasClipRect.Y + layout.CanvasClipRect.Height, layout.CanvasViewportRect.Y + layout.CanvasViewportRect.Height) - layout.CanvasViewportRect.Y;
+                float viewportPixelWidth = Math.Max(viewportPixelRight - viewportPixelLeft, 0f);
+                float viewportPixelHeight = Math.Max(viewportPixelBottom - viewportPixelTop, 0f);
+
+                if (layout.CanvasViewportRect.Width > 0f && layout.CanvasViewportRect.Height > 0f && viewportPixelWidth > 0f && viewportPixelHeight > 0f)
+                {
+                    UiRect visibleViewportRect = new(
+                        navigatorImageRect.X + ((viewportPixelLeft / layout.CanvasViewportRect.Width) * navigatorImageRect.Width),
+                        navigatorImageRect.Y + ((viewportPixelTop / layout.CanvasViewportRect.Height) * navigatorImageRect.Height),
+                        Math.Max((viewportPixelWidth / layout.CanvasViewportRect.Width) * navigatorImageRect.Width, 1f),
+                        Math.Max((viewportPixelHeight / layout.CanvasViewportRect.Height) * navigatorImageRect.Height, 1f));
+                    DrawUiRect(new UiRect(visibleViewportRect.X, visibleViewportRect.Y, visibleViewportRect.Width, 1), Blend(_theme.Accent, _theme.TabActive, 0.66f));
+                    DrawUiRect(new UiRect(visibleViewportRect.X, visibleViewportRect.Y + visibleViewportRect.Height - 1, visibleViewportRect.Width, 1), Blend(_theme.Accent, _theme.TabActive, 0.66f));
+                    DrawUiRect(new UiRect(visibleViewportRect.X, visibleViewportRect.Y, 1, visibleViewportRect.Height), Blend(_theme.Accent, _theme.TabActive, 0.66f));
+                    DrawUiRect(new UiRect(visibleViewportRect.X + visibleViewportRect.Width - 1, visibleViewportRect.Y, 1, visibleViewportRect.Height), Blend(_theme.Accent, _theme.TabActive, 0.66f));
+                }
+
+                if (_uiState.PixelStudio.HasSelection)
+                {
+                    DrawPreviewSelectionOutline(navigatorImageRect, canvasWidth, canvasHeight);
+                }
+            }
         }
 
         if (toolSettingsVisible)
@@ -539,7 +624,13 @@ public sealed class EditorShellRenderer : IDisposable
 
         if (layout.TimelinePanelRect.Height > 0)
         {
-            DrawPixelPreview(layout.PlaybackPreviewRect, _uiState.PixelStudio.PreviewPixels, _uiState.PixelStudio.CanvasWidth, _uiState.PixelStudio.CanvasHeight);
+            DrawPixelPreview(
+                "pixelstudio-playback-preview",
+                layout.PlaybackPreviewRect,
+                _uiState.PixelStudio.PreviewPixels,
+                _uiState.PixelStudio.CanvasWidth,
+                _uiState.PixelStudio.CanvasHeight,
+                _uiState.PixelStudio.PreviewPixelsRevision);
         }
 
         if (layout.CanvasResizeDialogRect is not null)
@@ -564,6 +655,7 @@ public sealed class EditorShellRenderer : IDisposable
                 DrawRoundedUiRect(button.Rect, ResolvePixelActionColor(button.Action), radius);
             }
         }
+
     }
 
     private void DrawPixelPanel(UiRect panelRect, ThemeColor bodyColor)
@@ -572,6 +664,200 @@ public sealed class EditorShellRenderer : IDisposable
         UiRect headerRect = GetPixelPanelHeaderRect(panelRect);
         DrawUiRect(headerRect, Blend(bodyColor, _theme.MenuBar, 0.22f));
         DrawUiRect(new UiRect(panelRect.X, headerRect.Y + headerRect.Height - 1, panelRect.Width, 1), _theme.Divider);
+    }
+
+    private void DrawPaletteColorSwatch(UiRect rect, ThemeColor color, float cornerRadius)
+    {
+        DrawRoundedUiRect(rect, _theme.Divider, cornerRadius);
+        UiRect innerRect = new(rect.X + 3f, rect.Y + 3f, Math.Max(rect.Width - 6f, 0f), Math.Max(rect.Height - 6f, 0f));
+        DrawAlphaChecker(innerRect, Math.Max(cornerRadius - 2f, 4f));
+        DrawRoundedUiRect(innerRect, color, Math.Max(cornerRadius - 2f, 4f));
+    }
+
+    private void DrawPaletteAlphaSlider(UiRect rect, UiRect? fillRect, UiRect? knobRect, ThemeColor activeColor)
+    {
+        _ = fillRect;
+        _ = knobRect;
+        DrawRoundedUiRect(rect, _theme.Divider, 9f);
+        UiRect innerRect = new(rect.X + 3f, rect.Y + 3f, Math.Max(rect.Width - 6f, 0f), Math.Max(rect.Height - 6f, 0f));
+        DrawAlphaChecker(innerRect, 6f);
+        DrawRoundedUiRect(innerRect, new ThemeColor(activeColor.R, activeColor.G, activeColor.B, 0.16f), 6f);
+        float alphaRatio = Math.Clamp(activeColor.A, 0f, 1f);
+        UiRect liveFillRect = new(
+            rect.X + 3f,
+            rect.Y + 3f,
+            Math.Max((rect.Width - 6f) * alphaRatio, 0f),
+            Math.Max(rect.Height - 6f, 0f));
+        float liveKnobX = rect.X + 3f + liveFillRect.Width - 6f;
+        liveKnobX = Math.Clamp(liveKnobX, rect.X, rect.X + Math.Max(rect.Width - 12f, 0f));
+        UiRect liveKnobRect = new(
+            liveKnobX,
+            rect.Y + 2f,
+            12f,
+            Math.Max(rect.Height - 4f, 0f));
+        if (liveFillRect.Width > 0f && liveFillRect.Height > 0f)
+        {
+            DrawRoundedUiRect(liveFillRect, new ThemeColor(activeColor.R, activeColor.G, activeColor.B, Math.Max(activeColor.A, 0.08f)), 5f);
+        }
+
+        if (liveKnobRect.Width > 0f && liveKnobRect.Height > 0f)
+        {
+            DrawRoundedUiRect(liveKnobRect, new ThemeColor(0.97f, 0.97f, 0.98f, 0.96f), 5f);
+        }
+    }
+
+    private void DrawAlphaChecker(UiRect rect, float cornerRadius)
+    {
+        DrawRoundedUiRect(rect, new ThemeColor(0.11f, 0.11f, 0.12f, 1f), cornerRadius);
+        if (rect.Width <= 0f || rect.Height <= 0f)
+        {
+            return;
+        }
+
+        const float checkerSize = 8f;
+        int columns = Math.Max((int)MathF.Ceiling(rect.Width / checkerSize), 1);
+        int rows = Math.Max((int)MathF.Ceiling(rect.Height / checkerSize), 1);
+        ThemeColor checkerLight = new(0.25f, 0.25f, 0.26f, 1f);
+        ThemeColor checkerDark = new(0.16f, 0.16f, 0.17f, 1f);
+        for (int row = 0; row < rows; row++)
+        {
+            for (int column = 0; column < columns; column++)
+            {
+                ThemeColor checker = ((row + column) & 1) == 0 ? checkerLight : checkerDark;
+                DrawUiRect(
+                    new UiRect(
+                        rect.X + (column * checkerSize),
+                        rect.Y + (row * checkerSize),
+                        Math.Min(checkerSize, rect.Width - (column * checkerSize)),
+                        Math.Min(checkerSize, rect.Height - (row * checkerSize))),
+                    checker);
+            }
+        }
+    }
+
+    private void DrawPaletteColorField(UiRect rect, ThemeColor activeColor)
+    {
+        DrawRoundedUiRect(rect, _theme.Divider, 12f);
+        UiRect innerRect = new(rect.X + 3, rect.Y + 3, Math.Max(rect.Width - 6, 0), Math.Max(rect.Height - 6, 0));
+        DrawRoundedUiRect(innerRect, new ThemeColor(0.08f, 0.08f, 0.09f, 1f), 10f);
+        if (innerRect.Width <= 0f || innerRect.Height <= 0f)
+        {
+            return;
+        }
+
+        const int columns = 36;
+        const int rows = 24;
+        float cellWidth = innerRect.Width / columns;
+        float cellHeight = innerRect.Height / rows;
+        for (int row = 0; row < rows; row++)
+        {
+            float value = 1f - (row / (float)Math.Max(rows - 1, 1));
+            for (int column = 0; column < columns; column++)
+            {
+                float sampleHue = (column / (float)Math.Max(columns - 1, 1)) * 360f;
+                ThemeColor sampleColor = FromHsv(sampleHue, 1f, value);
+                UiRect cellRect = new(
+                    innerRect.X + (column * cellWidth),
+                    innerRect.Y + (row * cellHeight),
+                    Math.Max(cellWidth + 1f, 1f),
+                    Math.Max(cellHeight + 1f, 1f));
+                DrawUiRect(cellRect, sampleColor);
+            }
+        }
+
+        (float hue, _, float valueCurrent) = ToHsv(activeColor);
+        float markerX = innerRect.X + ((hue / 360f) * innerRect.Width);
+        float markerY = innerRect.Y + ((1f - valueCurrent) * innerRect.Height);
+        UiRect markerOuter = new(markerX - 5f, markerY - 5f, 10f, 10f);
+        UiRect markerInner = new(markerX - 3f, markerY - 3f, 6f, 6f);
+        DrawRoundedUiRect(markerOuter, new ThemeColor(0.03f, 0.03f, 0.03f, 1f), 5f);
+        DrawRoundedUiRect(markerInner, new ThemeColor(0.98f, 0.98f, 0.98f, 1f), 3f);
+    }
+
+    private void DrawPaletteColorWheel(UiRect wheelRect, UiRect fieldRect, ThemeColor activeColor)
+    {
+        DrawRoundedUiRect(wheelRect, _theme.Divider, 14f);
+        UiRect innerBounds = new(wheelRect.X + 3, wheelRect.Y + 3, Math.Max(wheelRect.Width - 6, 0), Math.Max(wheelRect.Height - 6, 0));
+        DrawRoundedUiRect(innerBounds, new ThemeColor(0.08f, 0.08f, 0.09f, 1f), 12f);
+        if (innerBounds.Width <= 0f || innerBounds.Height <= 0f || fieldRect.Width <= 0f || fieldRect.Height <= 0f)
+        {
+            return;
+        }
+
+        float centerX = innerBounds.X + (innerBounds.Width * 0.5f);
+        float centerY = innerBounds.Y + (innerBounds.Height * 0.5f);
+        float outerRadius = MathF.Min(innerBounds.Width, innerBounds.Height) * 0.5f;
+        float fieldHalfWidth = fieldRect.Width * 0.5f;
+        float fieldHalfHeight = fieldRect.Height * 0.5f;
+        float ringInnerRadius = MathF.Sqrt((fieldHalfWidth * fieldHalfWidth) + (fieldHalfHeight * fieldHalfHeight));
+        const int wheelSamples = 72;
+        float sampleWidth = innerBounds.Width / wheelSamples;
+        float sampleHeight = innerBounds.Height / wheelSamples;
+
+        for (int row = 0; row < wheelSamples; row++)
+        {
+            float sampleY = innerBounds.Y + ((row + 0.5f) * sampleHeight);
+            for (int column = 0; column < wheelSamples; column++)
+            {
+                float sampleX = innerBounds.X + ((column + 0.5f) * sampleWidth);
+                float deltaX = sampleX - centerX;
+                float deltaY = sampleY - centerY;
+                float distance = MathF.Sqrt((deltaX * deltaX) + (deltaY * deltaY));
+                if (distance < ringInnerRadius || distance > outerRadius)
+                {
+                    continue;
+                }
+
+                float hue = MathF.Atan2(deltaY, deltaX) * 180f / MathF.PI;
+                if (hue < 0f)
+                {
+                    hue += 360f;
+                }
+
+                DrawUiRect(
+                    new UiRect(
+                        innerBounds.X + (column * sampleWidth),
+                        innerBounds.Y + (row * sampleHeight),
+                        Math.Max(sampleWidth + 1f, 1f),
+                        Math.Max(sampleHeight + 1f, 1f)),
+                    FromHsv(hue, 1f, 1f));
+            }
+        }
+
+        DrawRoundedUiRect(fieldRect, new ThemeColor(0.06f, 0.06f, 0.07f, 1f), 10f);
+        (float hueCurrent, float saturationCurrent, float valueCurrent) = ToHsv(activeColor);
+        const int fieldColumns = 32;
+        const int fieldRows = 32;
+        float fieldCellWidth = fieldRect.Width / fieldColumns;
+        float fieldCellHeight = fieldRect.Height / fieldRows;
+        for (int row = 0; row < fieldRows; row++)
+        {
+            float value = 1f - (row / (float)Math.Max(fieldRows - 1, 1));
+            for (int column = 0; column < fieldColumns; column++)
+            {
+                float saturation = column / (float)Math.Max(fieldColumns - 1, 1);
+                ThemeColor sampleColor = FromHsv(hueCurrent, saturation, value);
+                DrawUiRect(
+                    new UiRect(
+                        fieldRect.X + (column * fieldCellWidth),
+                        fieldRect.Y + (row * fieldCellHeight),
+                        Math.Max(fieldCellWidth + 1f, 1f),
+                        Math.Max(fieldCellHeight + 1f, 1f)),
+                    sampleColor);
+            }
+        }
+
+        float hueRadians = hueCurrent * MathF.PI / 180f;
+        float hueMarkerRadius = (ringInnerRadius + outerRadius) * 0.5f;
+        float hueMarkerX = centerX + (MathF.Cos(hueRadians) * hueMarkerRadius);
+        float hueMarkerY = centerY + (MathF.Sin(hueRadians) * hueMarkerRadius);
+        DrawRoundedUiRect(new UiRect(hueMarkerX - 6f, hueMarkerY - 6f, 12f, 12f), new ThemeColor(0.03f, 0.03f, 0.03f, 1f), 6f);
+        DrawRoundedUiRect(new UiRect(hueMarkerX - 3f, hueMarkerY - 3f, 6f, 6f), new ThemeColor(0.98f, 0.98f, 0.98f, 1f), 3f);
+
+        float fieldMarkerX = fieldRect.X + (saturationCurrent * fieldRect.Width);
+        float fieldMarkerY = fieldRect.Y + ((1f - valueCurrent) * fieldRect.Height);
+        DrawRoundedUiRect(new UiRect(fieldMarkerX - 5f, fieldMarkerY - 5f, 10f, 10f), new ThemeColor(0.03f, 0.03f, 0.03f, 1f), 5f);
+        DrawRoundedUiRect(new UiRect(fieldMarkerX - 3f, fieldMarkerY - 3f, 6f, 6f), new ThemeColor(0.98f, 0.98f, 0.98f, 1f), 3f);
     }
 
     private void DrawScrollRegion(UiRect? trackRect, UiRect? thumbRect)
@@ -647,7 +933,7 @@ public sealed class EditorShellRenderer : IDisposable
 
         foreach (ActionRect<EditorPreferenceAction> action in _layoutSnapshot!.PreferenceActions)
         {
-            DrawUiRect(action.Rect, _theme.TabInactive);
+            DrawRoundedUiRect(action.Rect, ResolvePreferenceActionColor(action.Action), 14f);
         }
 
         foreach (IndexedRect row in _layoutSnapshot!.PreferenceRows)
@@ -657,6 +943,47 @@ public sealed class EditorShellRenderer : IDisposable
         }
 
         DrawScrollRegion(_layoutSnapshot.PreferenceScrollTrackRect, _layoutSnapshot.PreferenceScrollThumbRect);
+
+        if (_uiState.ThemeStudio.Visible && _layoutSnapshot.ThemeStudioDialogRect is not null)
+        {
+            DrawUiRect(_layoutSnapshot.WorkspaceRect, new ThemeColor(0.03f, 0.03f, 0.04f, 0.34f));
+            UiRect dialogRect = _layoutSnapshot.ThemeStudioDialogRect.Value;
+            DrawRoundedUiRect(dialogRect, Blend(_theme.MenuBar, _theme.Workspace, 0.48f), 20f);
+            DrawRoundedUiRect(
+                new UiRect(dialogRect.X + 1, dialogRect.Y + 1, Math.Max(dialogRect.Width - 2f, 0f), Math.Max(dialogRect.Height - 2f, 0f)),
+                Blend(_theme.SidePanel, _theme.Workspace, 0.32f),
+                19f);
+
+            if (_layoutSnapshot.ThemeStudioNameFieldRect is not null)
+            {
+                DrawRoundedUiRect(_layoutSnapshot.ThemeStudioNameFieldRect.Value, _theme.TabInactive, 12f);
+            }
+
+            foreach (ActionRect<EditorThemeColorRole> roleButton in _layoutSnapshot.ThemeStudioRoleButtons)
+            {
+                EditorThemeRoleView? roleView = _uiState.ThemeStudio.Roles.FirstOrDefault(role => role.Role == roleButton.Action);
+                ThemeColor buttonColor = roleView?.IsSelected == true
+                    ? Blend(_theme.Accent, _theme.TabActive, 0.52f)
+                    : Blend(_theme.TabInactive, _theme.MenuBar, 0.18f);
+                DrawRoundedUiRect(roleButton.Rect, buttonColor, 12f);
+                DrawPaletteColorSwatch(new UiRect(roleButton.Rect.X + 8f, roleButton.Rect.Y + 6f, 20f, 20f), roleView?.Color ?? _theme.Accent, 6f);
+            }
+
+            if (_layoutSnapshot.ThemeStudioPreviewRect is not null)
+            {
+                DrawPaletteColorSwatch(_layoutSnapshot.ThemeStudioPreviewRect.Value, _uiState.ThemeStudio.SelectedColor, 14f);
+            }
+
+            if (_layoutSnapshot.ThemeStudioWheelRect is not null && _layoutSnapshot.ThemeStudioWheelFieldRect is not null)
+            {
+                DrawPaletteColorWheel(_layoutSnapshot.ThemeStudioWheelRect.Value, _layoutSnapshot.ThemeStudioWheelFieldRect.Value, _uiState.ThemeStudio.SelectedColor);
+            }
+
+            foreach (ActionRect<EditorThemeStudioAction> button in _layoutSnapshot.ThemeStudioButtons)
+            {
+                DrawRoundedUiRect(button.Rect, ResolveThemeStudioActionColor(button.Action), 12f);
+            }
+        }
     }
 
     private void DrawLayoutPage()
@@ -960,22 +1287,26 @@ public sealed class EditorShellRenderer : IDisposable
         ActionRect<ProjectFormAction> browseButton = _layoutSnapshot.ProjectFormActions.First(action => action.Action == ProjectFormAction.OpenFolderPicker);
 
         DrawTextInRect("Project Name", statusFont, bodyText, new UiRect(nameField.Rect.X, nameField.Rect.Y - 16, nameField.Rect.Width, 18), 0, 0);
-        DrawTextInRect(
+        DrawEditableTextInRect(
             string.IsNullOrWhiteSpace(_uiState.ProjectForm.ProjectName) ? "MyGame" : _uiState.ProjectForm.ProjectName,
             bodyFont,
             bodyText,
             nameField.Rect,
             10,
-            11);
+            11,
+            _uiState.ProjectForm.ActiveField == EditorTextField.ProjectName,
+            _uiState.ProjectForm.ProjectNameSelected);
 
         DrawTextInRect("Project Library", statusFont, bodyText, new UiRect(pathField.Rect.X, pathField.Rect.Y - 16, pathField.Rect.Width, 18), 0, 0);
-        DrawTextInRect(
+        DrawEditableTextInRect(
             TrimPath(string.IsNullOrWhiteSpace(_uiState.ProjectForm.ProjectLibraryPath) ? _uiState.ProjectLibraryPath : _uiState.ProjectForm.ProjectLibraryPath, 72),
             bodyFont,
             bodyText,
             pathField.Rect,
             10,
-            11);
+            11,
+            _uiState.ProjectForm.ActiveField == EditorTextField.ProjectLibraryPath,
+            _uiState.ProjectForm.ProjectLibraryPathSelected);
 
         DrawCenteredTextInRect("Create Project", bodyFont, bodyText, createButton.Rect, 12, 8);
         DrawCenteredTextInRect("Use Documents", bodyFont, bodyText, documentsButton.Rect, 12, 8);
@@ -1046,20 +1377,35 @@ public sealed class EditorShellRenderer : IDisposable
         {
             DrawTextInRect("Appearance", titleFont, bodyText, GetPixelPanelHeaderRect(_layoutSnapshot.PreferencesGeneralPanelRect.Value), 12, 7);
             UiRect generalBody = GetPixelPanelBodyRect(_layoutSnapshot.PreferencesGeneralPanelRect.Value);
-            DrawTextInRect("Theme, typography, and general editor polish live here.", statusFont, bodyText, new UiRect(generalBody.X, generalBody.Y, generalBody.Width, 18), 0, 0);
+            DrawTextInRect("Theme, typography, and picker settings live here.", statusFont, bodyText, new UiRect(generalBody.X, generalBody.Y, generalBody.Width, 18), 0, 0);
             DrawTextInRect("These settings persist when you close and reopen the editor.", statusFont, bodyText, new UiRect(generalBody.X, generalBody.Y + 18, generalBody.Width, 18), 0, 0);
         }
 
         ActionRect<EditorPreferenceAction> themeButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.ToggleTheme);
         ActionRect<EditorPreferenceAction> sizeButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleFontSize);
         ActionRect<EditorPreferenceAction> fontButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleFontFamily);
+        ActionRect<EditorPreferenceAction> pickerButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleColorPickerMode);
+        ActionRect<EditorPreferenceAction> studioButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.OpenThemeStudio);
         DrawCenteredTextInRect($"Theme: {_uiState.ThemeLabel}", bodyFont, bodyText, themeButton.Rect, 12, 8);
         DrawCenteredTextInRect($"Text: {_uiState.FontSizeLabel}", bodyFont, bodyText, sizeButton.Rect, 12, 8);
         DrawCenteredTextInRect($"Font: {TrimPath(_uiState.FontFamily, 16)}", bodyFont, bodyText, fontButton.Rect, 12, 8);
+        DrawCenteredTextInRect($"Picker: {GetColorPickerModeLabel(_uiState.PixelStudio.ColorPickerMode)}", bodyFont, bodyText, pickerButton.Rect, 12, 8);
+        DrawCenteredTextInRect("Theme Studio", bodyFont, bodyText, studioButton.Rect, 12, 8);
         if (_layoutSnapshot.PreferencesGeneralPanelRect is not null)
         {
             UiRect generalBody = GetPixelPanelBodyRect(_layoutSnapshot.PreferencesGeneralPanelRect.Value);
-            DrawTextInRect($"Aa Bb Cc 123 - {EditorBranding.EngineName} Sample", bodyFont, bodyText, new UiRect(generalBody.X, generalBody.Y + 92, generalBody.Width, 20), 0, 0);
+            float sampleY = Math.Max(
+                Math.Max(themeButton.Rect.Y + themeButton.Rect.Height, sizeButton.Rect.Y + sizeButton.Rect.Height),
+                Math.Max(
+                    Math.Max(fontButton.Rect.Y + fontButton.Rect.Height, pickerButton.Rect.Y + pickerButton.Rect.Height),
+                    studioButton.Rect.Y + studioButton.Rect.Height)) + 10f;
+            DrawTextInRect(
+                $"Aa Bb Cc 123 - {EditorBranding.EngineName} Sample",
+                bodyFont,
+                bodyText,
+                new UiRect(generalBody.X, sampleY, generalBody.Width, 20),
+                0,
+                0);
         }
 
         if (_layoutSnapshot.PreferencesShortcutPanelRect is not null)
@@ -1086,6 +1432,50 @@ public sealed class EditorShellRenderer : IDisposable
             DrawTextInRect($"{binding.Label} [{keyLabel}]", bodyFont, bodyText, rect, 12, 10);
             DrawTextInRect(binding.Description, statusFont, bodyText, rect, 12, 24);
         }
+
+        if (_uiState.ThemeStudio.Visible && _layoutSnapshot.ThemeStudioDialogRect is not null)
+        {
+            DrawThemeStudioText(titleFont, bodyFont, statusFont, bodyText, bodyText);
+        }
+    }
+
+    private void DrawThemeStudioText(Font titleFont, Font bodyFont, Font statusFont, SixLabors.ImageSharp.Color bodyText, SixLabors.ImageSharp.Color statusText)
+    {
+        UiRect dialogRect = _layoutSnapshot!.ThemeStudioDialogRect!.Value;
+        UiRect contentRect = new(dialogRect.X + 16f, dialogRect.Y + 16f, Math.Max(dialogRect.Width - 32f, 0f), Math.Max(dialogRect.Height - 32f, 0f));
+        DrawTextInRect("Theme Studio", titleFont, bodyText, new UiRect(contentRect.X, contentRect.Y, contentRect.Width, 20f), 0, 0);
+        DrawTextInRect("Create and save a custom editor theme.", statusFont, statusText, new UiRect(contentRect.X, contentRect.Y + 20f, contentRect.Width, 16f), 0, 0);
+        if (_layoutSnapshot.ThemeStudioNameFieldRect is not null)
+        {
+            DrawTextInRect("Theme Name", statusFont, statusText, new UiRect(_layoutSnapshot.ThemeStudioNameFieldRect.Value.X, _layoutSnapshot.ThemeStudioNameFieldRect.Value.Y - 18f, _layoutSnapshot.ThemeStudioNameFieldRect.Value.Width, 16f), 0, 0);
+            DrawEditableTextInRect(
+                _uiState.ThemeStudio.ThemeName,
+                bodyFont,
+                bodyText,
+                _layoutSnapshot.ThemeStudioNameFieldRect.Value,
+                10f,
+                8f,
+                _uiState.ThemeStudio.ThemeNameActive,
+                _uiState.ThemeStudio.ThemeNameSelected);
+        }
+
+        if (_layoutSnapshot.ThemeStudioPreviewRect is not null)
+        {
+            DrawTextInRect(_uiState.ThemeStudio.SelectedRoleLabel, statusFont, statusText, new UiRect(_layoutSnapshot.ThemeStudioPreviewRect.Value.X, _layoutSnapshot.ThemeStudioPreviewRect.Value.Y - 18f, _layoutSnapshot.ThemeStudioPreviewRect.Value.Width, 16f), 0, 0);
+        }
+
+        foreach (ActionRect<EditorThemeColorRole> roleButton in _layoutSnapshot.ThemeStudioRoleButtons)
+        {
+            DrawTextInRect(GetThemeRoleLabel(roleButton.Action), bodyFont, bodyText, new UiRect(roleButton.Rect.X + 34f, roleButton.Rect.Y, Math.Max(roleButton.Rect.Width - 40f, 0f), roleButton.Rect.Height), 0, 7);
+        }
+
+        foreach (ActionRect<EditorThemeStudioAction> button in _layoutSnapshot.ThemeStudioButtons)
+        {
+            string label = button.Action == EditorThemeStudioAction.SaveTheme
+                ? _uiState.ThemeStudio.SaveLabel
+                : GetThemeStudioActionLabel(button.Action);
+            DrawCenteredTextClippedInRect(label, bodyFont, bodyText, button.Rect, 8, 6);
+        }
     }
 
     private void DrawPixelStudioText(Font titleFont, Font bodyFont, Font statusFont, SixLabors.ImageSharp.Color bodyText, SixLabors.ImageSharp.Color statusText)
@@ -1106,7 +1496,7 @@ public sealed class EditorShellRenderer : IDisposable
         UiRect layersHeaderRect = GetPixelPanelHeaderRect(layout.LayersPanelRect);
         UiRect layersBodyRect = GetPixelPanelBodyRect(layout.LayersPanelRect);
         UiRect framesHeaderRect = GetPixelPanelHeaderRect(layout.TimelinePanelRect);
-        UiRect canvasHeaderControlsRect = GetUnionRect(layout.CanvasButtons.Select(button => button.Rect));
+        UiRect canvasHeaderControlsRect = GetUnionRect(layout.CanvasButtons.Select(button => button.Rect).Concat(layout.SelectionButtons.Select(button => button.Rect)));
         UiRect canvasTitleRect = GetHeaderTitleRect(canvasHeaderRect, canvasHeaderControlsRect);
         UiRect framesAccessoryRect = new(framesHeaderRect.X + Math.Max(framesHeaderRect.Width - 84, 0), framesHeaderRect.Y, Math.Min(72, Math.Max(framesHeaderRect.Width - 24, 0)), framesHeaderRect.Height);
         UiRect framesTitleRect = GetHeaderTitleRect(framesHeaderRect, framesAccessoryRect);
@@ -1135,7 +1525,7 @@ public sealed class EditorShellRenderer : IDisposable
         DrawCenteredTextInRect(sidebarCollapsed ? "<" : ">", bodyFont, bodyText, layout.RightCollapseHandleRect, 2, 2);
         foreach (ActionRect<PixelStudioToolKind> toolButton in layout.ToolButtons)
         {
-            DrawCenteredTextClippedInRect(GetPixelToolLabel(toolButton.Action), bodyFont, bodyText, toolButton.Rect, 8, 8);
+            DrawCenteredTextClippedInRect(GetPixelToolButtonLabel(toolButton.Action), bodyFont, bodyText, toolButton.Rect, 8, 8);
         }
 
         DrawTextInRect("Canvas", titleFont, bodyText, canvasTitleRect, 0, 7);
@@ -1143,9 +1533,13 @@ public sealed class EditorShellRenderer : IDisposable
         {
             DrawCenteredTextClippedInRect(GetPixelStudioActionLabel(button.Action), bodyFont, bodyText, button.Rect, 6, 6);
         }
+        foreach (ActionRect<PixelStudioAction> button in layout.SelectionButtons)
+        {
+            DrawCenteredTextClippedInRect(GetPixelStudioActionLabel(button.Action), bodyFont, bodyText, button.Rect, 6, 6);
+        }
         if (canvasBodyRect.Width >= 260)
         {
-            DrawTextInRect("Ctrl+Z undo, Ctrl+Y redo, Delete clears selection.", statusFont, statusText, new UiRect(canvasBodyRect.X, canvasBodyRect.Y, canvasBodyRect.Width, 18), 0, 0);
+            DrawTextInRect("Ctrl+Z undo, Ctrl+Y redo, Ctrl+C/X/V selection, Ctrl+D deselect.", statusFont, statusText, new UiRect(canvasBodyRect.X, canvasBodyRect.Y, canvasBodyRect.Width, 18), 0, 0);
         }
 
         if (toolSettingsVisible)
@@ -1166,20 +1560,42 @@ public sealed class EditorShellRenderer : IDisposable
         DrawTextInRect(sidebarCollapsed ? "C" : "Colors", titleFont, bodyText, paletteTitleRect, 0, 7);
         if (!sidebarCollapsed && layout.PaletteButtons.Count > 0)
         {
-            float infoX = layout.ActiveColorRect.X + layout.ActiveColorRect.Width + 14;
-            float infoWidth = (paletteBodyRect.X + paletteBodyRect.Width) - infoX;
-            UiRect activeInfoRect = new(infoX, layout.ActiveColorRect.Y, infoWidth, layout.ActiveColorRect.Height);
+            float infoX = layout.ActiveColorRect.X + layout.ActiveColorRect.Width + 12;
+            IReadOnlyList<ActionRect<PixelStudioAction>> rgbButtons = layout.PaletteButtons
+                .Where(button => button.Action is PixelStudioAction.DecreaseRed
+                    or PixelStudioAction.IncreaseRed
+                    or PixelStudioAction.DecreaseGreen
+                    or PixelStudioAction.IncreaseGreen
+                    or PixelStudioAction.DecreaseBlue
+                    or PixelStudioAction.IncreaseBlue)
+                .ToList();
+            float infoRight = rgbButtons.Count > 0
+                ? rgbButtons.Min(button => button.Rect.X) - 10f
+                : paletteBodyRect.X + paletteBodyRect.Width;
+            float infoWidth = Math.Max(infoRight - infoX, 32f);
+            UiRect activeInfoRect = new(infoX, layout.ActiveColorRect.Y, infoWidth, 60);
             bool showPaletteLabels = paletteBodyRect.Width >= 220;
 
             if (showPaletteLabels)
             {
                 DrawTextInRect("Active Color", statusFont, statusText, new UiRect(paletteBodyRect.X, paletteBodyRect.Y, paletteBodyRect.Width, 18), 0, 0);
             }
-            DrawTextInRect(pixelStudio.ActivePaletteName, statusFont, statusText, new UiRect(activeInfoRect.X, activeInfoRect.Y, activeInfoRect.Width, 18), 0, 0);
-            DrawTextInRect(pixelStudio.ActiveColorHex, bodyFont, bodyText, new UiRect(activeInfoRect.X, activeInfoRect.Y + 24, activeInfoRect.Width, 20), 0, 0);
+            DrawTextClippedInRect(pixelStudio.ActivePaletteName, statusFont, statusText, new UiRect(activeInfoRect.X, activeInfoRect.Y, activeInfoRect.Width, 18), 0, 0);
+            DrawTextClippedInRect(pixelStudio.ActiveColorHex, bodyFont, bodyText, new UiRect(activeInfoRect.X, activeInfoRect.Y + 20, activeInfoRect.Width, 18), 0, 0);
+            DrawTextClippedInRect($"Alpha {MathF.Round(pixelStudio.ActiveColorAlpha * 100f)}%", statusFont, statusText, new UiRect(activeInfoRect.X, activeInfoRect.Y + 40, activeInfoRect.Width, 16), 0, 0);
             if (showPaletteLabels)
             {
-                DrawTextInRect("Colors", statusFont, statusText, new UiRect(paletteBodyRect.X, layout.ActiveColorRect.Y + layout.ActiveColorRect.Height + 10, paletteBodyRect.Width, 18), 0, 0);
+                float colorControlsBottom = layout.RecentColorSwatches.Count > 0
+                    ? layout.RecentColorSwatches.Max(entry => entry.Rect.Y + entry.Rect.Height)
+                    : layout.PaletteAlphaSliderRect is not null
+                        ? layout.PaletteAlphaSliderRect.Value.Y + layout.PaletteAlphaSliderRect.Value.Height
+                        : layout.PaletteColorWheelRect is not null
+                            ? layout.PaletteColorWheelRect.Value.Y + layout.PaletteColorWheelRect.Value.Height
+                            : layout.PaletteColorFieldRect is not null
+                                ? layout.PaletteColorFieldRect.Value.Y + layout.PaletteColorFieldRect.Value.Height
+                                : layout.ActiveColorRect.Y + layout.ActiveColorRect.Height;
+                float colorsLabelY = colorControlsBottom + 8;
+                DrawTextInRect("Colors", statusFont, statusText, new UiRect(paletteBodyRect.X, colorsLabelY, paletteBodyRect.Width, 18), 0, 0);
             }
             foreach (ActionRect<PixelStudioAction> button in layout.PaletteButtons)
             {
@@ -1201,7 +1617,7 @@ public sealed class EditorShellRenderer : IDisposable
             if (layout.PaletteRenameFieldRect is not null)
             {
                 string renameText = string.IsNullOrWhiteSpace(pixelStudio.PaletteRenameBuffer) ? "Type a new palette name..." : pixelStudio.PaletteRenameBuffer;
-                DrawTextInRect(renameText, bodyFont, bodyText, layout.PaletteRenameFieldRect.Value, 8, 7);
+                DrawEditableTextInRect(renameText, bodyFont, bodyText, layout.PaletteRenameFieldRect.Value, 8, 7, pixelStudio.PaletteRenameActive, pixelStudio.PaletteRenameSelected);
             }
 
             for (int visibleIndex = 0; visibleIndex < layout.SavedPaletteRows.Count; visibleIndex++)
@@ -1230,8 +1646,17 @@ public sealed class EditorShellRenderer : IDisposable
         {
             foreach (ActionRect<PixelStudioContextMenuAction> button in layout.ContextMenuButtons)
             {
-                bool isDestructive = button.Action is PixelStudioContextMenuAction.DeleteLayer or PixelStudioContextMenuAction.DeletePalette or PixelStudioContextMenuAction.DeleteFrame;
-                DrawUiRect(button.Rect, isDestructive ? Blend(_theme.TabInactive, _theme.Accent, 0.14f) : _theme.TabInactive);
+                bool isDestructive = button.Action is PixelStudioContextMenuAction.DeleteLayer or PixelStudioContextMenuAction.DeletePalette or PixelStudioContextMenuAction.DeleteFrame or PixelStudioContextMenuAction.CutSelection or PixelStudioContextMenuAction.DisableSelection;
+                bool isActiveSelectionMode =
+                    (button.Action == PixelStudioContextMenuAction.SetSelectionModeBox && _uiState.PixelStudio.SelectionMode == PixelStudioSelectionMode.Box)
+                    || (button.Action == PixelStudioContextMenuAction.SetSelectionModeAutoGlobal && _uiState.PixelStudio.SelectionMode == PixelStudioSelectionMode.AutoGlobal)
+                    || (button.Action == PixelStudioContextMenuAction.SetSelectionModeAutoLocal && _uiState.PixelStudio.SelectionMode == PixelStudioSelectionMode.AutoLocal);
+                ThemeColor buttonColor = isActiveSelectionMode
+                    ? Blend(_theme.TabActive, _theme.Accent, 0.36f)
+                    : isDestructive
+                        ? Blend(_theme.TabInactive, _theme.Accent, 0.14f)
+                        : _theme.TabInactive;
+                DrawUiRect(button.Rect, buttonColor);
                 DrawTextInRect(GetContextMenuLabel(button.Action), bodyFont, bodyText, button.Rect, 10, 6);
             }
         }
@@ -1253,7 +1678,7 @@ public sealed class EditorShellRenderer : IDisposable
         if (layout.LayerRenameFieldRect is not null)
         {
             string renameText = string.IsNullOrWhiteSpace(pixelStudio.LayerRenameBuffer) ? "Type a new layer name..." : pixelStudio.LayerRenameBuffer;
-            DrawTextInRect(renameText, bodyFont, bodyText, layout.LayerRenameFieldRect.Value, 8, 7);
+            DrawEditableTextInRect(renameText, bodyFont, bodyText, layout.LayerRenameFieldRect.Value, 8, 7, pixelStudio.LayerRenameActive, pixelStudio.LayerRenameSelected);
         }
         for (int index = 0; index < layout.LayerRows.Count && index < pixelStudio.Layers.Count; index++)
         {
@@ -1279,7 +1704,7 @@ public sealed class EditorShellRenderer : IDisposable
             if (layout.FrameRenameFieldRect is not null)
             {
                 string renameText = string.IsNullOrWhiteSpace(pixelStudio.FrameRenameBuffer) ? "Type a new frame name..." : pixelStudio.FrameRenameBuffer;
-                DrawTextInRect(renameText, bodyFont, bodyText, layout.FrameRenameFieldRect.Value, 8, 7);
+                DrawEditableTextInRect(renameText, bodyFont, bodyText, layout.FrameRenameFieldRect.Value, 8, 7, pixelStudio.FrameRenameActive, pixelStudio.FrameRenameSelected);
             }
             for (int index = 0; index < layout.FrameRows.Count && index < pixelStudio.Frames.Count; index++)
             {
@@ -1330,11 +1755,11 @@ public sealed class EditorShellRenderer : IDisposable
                 {
                     case PixelStudioAction.ActivateCanvasResizeWidthField:
                         DrawTextInRect("Width", resizeInfoFont, statusText, new UiRect(button.Rect.X + 10, button.Rect.Y + 4, button.Rect.Width - 20, 16), 0, 0);
-                        DrawCenteredTextInRect(pixelStudio.CanvasResizeWidthBuffer, bodyFont, bodyText, new UiRect(button.Rect.X, button.Rect.Y + 20, button.Rect.Width, button.Rect.Height - 20), 4, 0);
+                        DrawCenteredEditableTextInRect(pixelStudio.CanvasResizeWidthBuffer, bodyFont, bodyText, new UiRect(button.Rect.X, button.Rect.Y + 20, button.Rect.Width, button.Rect.Height - 20), 4, 0, pixelStudio.CanvasResizeWidthFieldActive, pixelStudio.CanvasResizeWidthSelected);
                         break;
                     case PixelStudioAction.ActivateCanvasResizeHeightField:
                         DrawTextInRect("Height", resizeInfoFont, statusText, new UiRect(button.Rect.X + 10, button.Rect.Y + 4, button.Rect.Width - 20, 16), 0, 0);
-                        DrawCenteredTextInRect(pixelStudio.CanvasResizeHeightBuffer, bodyFont, bodyText, new UiRect(button.Rect.X, button.Rect.Y + 20, button.Rect.Width, button.Rect.Height - 20), 4, 0);
+                        DrawCenteredEditableTextInRect(pixelStudio.CanvasResizeHeightBuffer, bodyFont, bodyText, new UiRect(button.Rect.X, button.Rect.Y + 20, button.Rect.Width, button.Rect.Height - 20), 4, 0, pixelStudio.CanvasResizeHeightFieldActive, pixelStudio.CanvasResizeHeightSelected);
                         break;
                     case PixelStudioAction.ApplyCanvasResize:
                     case PixelStudioAction.CancelCanvasResize:
@@ -1363,6 +1788,29 @@ public sealed class EditorShellRenderer : IDisposable
 
             DrawTextInRect("Anchor", titleFont, bodyText, new UiRect(dialogContentRect.X, anchorLabelY, dialogContentRect.Width, 20), 0, 0);
             DrawTextInRect(pixelStudio.CanvasResizeWarningText, resizeInfoFont, statusText, new UiRect(dialogContentRect.X, warningY, dialogContentRect.Width, 16), 0, 0);
+        }
+
+        if (pixelStudio.HoverTooltipVisible && !string.IsNullOrWhiteSpace(pixelStudio.HoverTooltipTitle))
+        {
+            float titleWidth = MeasureTextWidth(pixelStudio.HoverTooltipTitle, titleFont);
+            float bodyWidth = string.IsNullOrWhiteSpace(pixelStudio.HoverTooltipBody)
+                ? 0f
+                : MeasureTextWidth(pixelStudio.HoverTooltipBody, statusFont);
+            float tooltipWidth = Math.Max(Math.Max(titleWidth, bodyWidth) + 24f, 108f);
+            float tooltipHeight = string.IsNullOrWhiteSpace(pixelStudio.HoverTooltipBody) ? 34f : 50f;
+            float tooltipX = Math.Clamp(pixelStudio.HoverTooltipX, 8f, Math.Max(_width - tooltipWidth - 8f, 8f));
+            float tooltipY = Math.Clamp(pixelStudio.HoverTooltipY, 8f, Math.Max(_height - tooltipHeight - 8f, 8f));
+            UiRect tooltipRect = new(tooltipX, tooltipY, tooltipWidth, tooltipHeight);
+            DrawRoundedUiRect(tooltipRect, new ThemeColor(0.05f, 0.05f, 0.06f, 0.96f), 12f);
+            DrawRoundedUiRect(
+                new UiRect(tooltipRect.X + 1, tooltipRect.Y + 1, Math.Max(tooltipRect.Width - 2, 0f), Math.Max(tooltipRect.Height - 2, 0f)),
+                new ThemeColor(0.10f, 0.10f, 0.11f, 0.98f),
+                11f);
+            DrawTextInRect(pixelStudio.HoverTooltipTitle, titleFont, bodyText, new UiRect(tooltipRect.X + 12, tooltipRect.Y + 8, tooltipRect.Width - 24, 16), 0, 0);
+            if (!string.IsNullOrWhiteSpace(pixelStudio.HoverTooltipBody))
+            {
+                DrawTextInRect(pixelStudio.HoverTooltipBody, statusFont, statusText, new UiRect(tooltipRect.X + 12, tooltipRect.Y + 25, tooltipRect.Width - 24, 16), 0, 0);
+            }
         }
     }
 
@@ -1433,12 +1881,18 @@ public sealed class EditorShellRenderer : IDisposable
     {
         return string.Equals(_theme.Name, EditorThemeCatalog.LightThemeName, StringComparison.OrdinalIgnoreCase)
             ? new ThemeColor(0.98f, 0.98f, 0.98f, 1.0f)
-            : new ThemeColor(0.03f, 0.03f, 0.03f, 1.0f);
+            : string.Equals(_theme.Name, EditorThemeCatalog.DarkThemeName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(_theme.Name, EditorThemeCatalog.KumaThemeName, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(_theme.Name, EditorThemeCatalog.KearuThemeName, StringComparison.OrdinalIgnoreCase)
+                ? new ThemeColor(0.03f, 0.03f, 0.03f, 1.0f)
+                : _theme.MenuBar;
     }
 
     private ThemeColor ResolveTopBarTextColor()
     {
-        return string.Equals(_theme.Name, EditorThemeCatalog.LightThemeName, StringComparison.OrdinalIgnoreCase)
+        ThemeColor topBar = ResolveTopBarColor();
+        float luminance = (topBar.R * 0.2126f) + (topBar.G * 0.7152f) + (topBar.B * 0.0722f);
+        return luminance >= 0.58f
             ? new ThemeColor(0.06f, 0.06f, 0.06f, 1.0f)
             : new ThemeColor(0.98f, 0.98f, 0.98f, 1.0f);
     }
@@ -1536,14 +1990,103 @@ public sealed class EditorShellRenderer : IDisposable
         DrawTextClipped(rect, text, font, color, paddingX, paddingY, UiTextAlignment.Left);
     }
 
+    private void DrawEditableTextInRect(string text, Font font, SixLabors.ImageSharp.Color color, UiRect rect, float paddingX, float paddingY, bool active, bool selected = false)
+    {
+        if (selected)
+        {
+            DrawTextSelectionHighlight(rect, font, text, paddingX, paddingY, UiTextAlignment.Left);
+        }
+
+        DrawTextInRect(text, font, color, rect, paddingX, paddingY);
+        if (active && !selected)
+        {
+            DrawTextCaret(rect, font, text, paddingX, paddingY, UiTextAlignment.Left);
+        }
+    }
+
     private void DrawCenteredTextInRect(string text, Font font, SixLabors.ImageSharp.Color color, UiRect rect, float minPaddingX, float minPaddingY)
     {
         DrawTextEllipsis(rect, text, font, color, minPaddingX, minPaddingY, UiTextAlignment.Center);
     }
 
+    private void DrawCenteredEditableTextInRect(string text, Font font, SixLabors.ImageSharp.Color color, UiRect rect, float minPaddingX, float minPaddingY, bool active, bool selected = false)
+    {
+        if (selected)
+        {
+            DrawTextSelectionHighlight(rect, font, text, minPaddingX, minPaddingY, UiTextAlignment.Center);
+        }
+
+        DrawCenteredTextInRect(text, font, color, rect, minPaddingX, minPaddingY);
+        if (active && !selected)
+        {
+            DrawTextCaret(rect, font, text, minPaddingX, minPaddingY, UiTextAlignment.Center);
+        }
+    }
+
     private void DrawCenteredTextClippedInRect(string text, Font font, SixLabors.ImageSharp.Color color, UiRect rect, float minPaddingX, float minPaddingY)
     {
         DrawTextClipped(rect, text, font, color, minPaddingX, minPaddingY, UiTextAlignment.Center);
+    }
+
+    private void DrawTextCaret(UiRect rect, Font font, string text, float paddingX, float paddingY, UiTextAlignment alignment)
+    {
+        if (rect.Width <= 0f || rect.Height <= 0f)
+        {
+            return;
+        }
+
+        string content = string.IsNullOrWhiteSpace(text) ? string.Empty : text;
+        float availableWidth = Math.Max(rect.Width - (paddingX * 2f), 8f);
+        float textWidth = Math.Min(MeasureTextWidth(content, font), availableWidth);
+        TextMeasurement measurement = MeasureText(string.IsNullOrWhiteSpace(content) ? "|" : content, font);
+        float textHeight = MathF.Max(measurement.Ascent + measurement.Descent, measurement.TextHeight);
+        UiRect contentRect = alignment == UiTextAlignment.Center
+            ? new UiRect(rect.X + paddingX, rect.Y + paddingY, Math.Max(rect.Width - (paddingX * 2f), 0f), Math.Max(rect.Height - (paddingY * 2f), 0f))
+            : new UiRect(rect.X + paddingX, rect.Y + paddingY, Math.Max(rect.Width - (paddingX * 2f), 0f), Math.Max(rect.Height - paddingY, 0f));
+        float baseX = alignment == UiTextAlignment.Center
+            ? contentRect.X + Math.Max((contentRect.Width - textWidth) * 0.5f, 0f)
+            : contentRect.X;
+        float textTop = alignment == UiTextAlignment.Center
+            ? contentRect.Y + Math.Max((contentRect.Height - textHeight) * 0.5f, 0f)
+            : contentRect.Y;
+        float caretX = MathF.Min(baseX + textWidth + 1f, rect.X + rect.Width - 4f);
+        float caretY = textTop + 1f;
+        float caretHeight = Math.Max(textHeight - 2f, 12f);
+        DrawUiRect(new UiRect(caretX, caretY, 1.5f, Math.Min(caretHeight, rect.Height - 4f)), _theme.Accent);
+    }
+
+    private void DrawTextSelectionHighlight(UiRect rect, Font font, string text, float paddingX, float paddingY, UiTextAlignment alignment)
+    {
+        if (rect.Width <= 0f || rect.Height <= 0f)
+        {
+            return;
+        }
+
+        string content = string.IsNullOrWhiteSpace(text) ? " " : text;
+        float availableWidth = Math.Max(rect.Width - (paddingX * 2f), 8f);
+        float textWidth = Math.Min(Math.Max(MeasureTextWidth(content, font), 12f), availableWidth);
+        TextMeasurement measurement = MeasureText(content, font);
+        float textHeight = MathF.Max(measurement.Ascent + measurement.Descent, measurement.TextHeight);
+        UiRect contentRect = alignment == UiTextAlignment.Center
+            ? new UiRect(rect.X + paddingX, rect.Y + paddingY, Math.Max(rect.Width - (paddingX * 2f), 0f), Math.Max(rect.Height - (paddingY * 2f), 0f))
+            : new UiRect(rect.X + paddingX, rect.Y + paddingY, Math.Max(rect.Width - (paddingX * 2f), 0f), Math.Max(rect.Height - paddingY, 0f));
+        float highlightX = alignment == UiTextAlignment.Center
+            ? contentRect.X + Math.Max((contentRect.Width - textWidth) * 0.5f, 0f) - 3f
+            : contentRect.X - 2f;
+        float highlightY = alignment == UiTextAlignment.Center
+            ? contentRect.Y + Math.Max((contentRect.Height - textHeight) * 0.5f, 0f) - 2f
+            : contentRect.Y - 1f;
+        float highlightWidth = Math.Min(textWidth + 6f, rect.Width - 4f);
+        float highlightHeight = Math.Min(Math.Max(textHeight + 4f, 14f), rect.Height - 4f);
+        ThemeColor highlightColor = Blend(_theme.Accent, _theme.TabActive, 0.28f);
+        DrawRoundedUiRect(
+            new UiRect(
+                Math.Max(highlightX, rect.X + 2f),
+                Math.Max(highlightY, rect.Y + 2f),
+                Math.Max(highlightWidth, 10f),
+                Math.Max(highlightHeight, 12f)),
+            highlightColor,
+            6f);
     }
 
     private static string FitTextToWidth(string text, Font font, float maxWidth)
@@ -1684,6 +2227,69 @@ public sealed class EditorShellRenderer : IDisposable
     {
         float unitsPerEm = MathF.Max(font.FontMetrics.UnitsPerEm, 1f);
         return font.Size / unitsPerEm;
+    }
+
+    private static ThemeColor FromHsv(float hue, float saturation, float value, float alpha = 1f)
+    {
+        hue = ((hue % 360f) + 360f) % 360f;
+        saturation = Math.Clamp(saturation, 0f, 1f);
+        value = Math.Clamp(value, 0f, 1f);
+        alpha = Math.Clamp(alpha, 0f, 1f);
+
+        if (saturation <= 0.0001f)
+        {
+            return new ThemeColor(value, value, value, alpha);
+        }
+
+        float sector = hue / 60f;
+        int sectorIndex = (int)MathF.Floor(sector);
+        float fraction = sector - sectorIndex;
+        float p = value * (1f - saturation);
+        float q = value * (1f - (saturation * fraction));
+        float t = value * (1f - (saturation * (1f - fraction)));
+
+        return sectorIndex switch
+        {
+            0 => new ThemeColor(value, t, p, alpha),
+            1 => new ThemeColor(q, value, p, alpha),
+            2 => new ThemeColor(p, value, t, alpha),
+            3 => new ThemeColor(p, q, value, alpha),
+            4 => new ThemeColor(t, p, value, alpha),
+            _ => new ThemeColor(value, p, q, alpha)
+        };
+    }
+
+    private static (float Hue, float Saturation, float Value) ToHsv(ThemeColor color)
+    {
+        float max = Math.Max(color.R, Math.Max(color.G, color.B));
+        float min = Math.Min(color.R, Math.Min(color.G, color.B));
+        float delta = max - min;
+        float hue;
+
+        if (delta <= 0.0001f)
+        {
+            hue = 0f;
+        }
+        else if (Math.Abs(max - color.R) < 0.0001f)
+        {
+            hue = 60f * (((color.G - color.B) / delta) % 6f);
+        }
+        else if (Math.Abs(max - color.G) < 0.0001f)
+        {
+            hue = 60f * (((color.B - color.R) / delta) + 2f);
+        }
+        else
+        {
+            hue = 60f * (((color.R - color.G) / delta) + 4f);
+        }
+
+        if (hue < 0f)
+        {
+            hue += 360f;
+        }
+
+        float saturation = max <= 0.0001f ? 0f : delta / max;
+        return (hue, saturation, max);
     }
 
     private static UiRect SnapRect(UiRect rect)
@@ -1846,16 +2452,46 @@ public sealed class EditorShellRenderer : IDisposable
         }
     }
 
-    private static string GetPixelToolLabel(PixelStudioToolKind tool)
+    private string GetPixelToolLabel(PixelStudioToolKind tool)
     {
         return tool switch
         {
-            PixelStudioToolKind.Select => "Select",
+            PixelStudioToolKind.Select => _uiState.PixelStudio.SelectionMode switch
+            {
+                PixelStudioSelectionMode.AutoGlobal => "Select AG",
+                PixelStudioSelectionMode.AutoLocal => "Select AL",
+                _ => "Select"
+            },
+            PixelStudioToolKind.Hand => "Hand",
             PixelStudioToolKind.Pencil => "Pencil",
             PixelStudioToolKind.Eraser => "Eraser",
             PixelStudioToolKind.Line => "Line",
+            PixelStudioToolKind.Rectangle => "Rectangle",
+            PixelStudioToolKind.Ellipse => "Ellipse",
             PixelStudioToolKind.Fill => "Fill",
             PixelStudioToolKind.Picker => "Picker",
+            _ => tool.ToString()
+        };
+    }
+
+    private string GetPixelToolButtonLabel(PixelStudioToolKind tool)
+    {
+        return tool switch
+        {
+            PixelStudioToolKind.Select => _uiState.PixelStudio.SelectionMode switch
+            {
+                PixelStudioSelectionMode.AutoGlobal => "AG",
+                PixelStudioSelectionMode.AutoLocal => "AL",
+                _ => "Sel"
+            },
+            PixelStudioToolKind.Hand => "Pan",
+            PixelStudioToolKind.Pencil => "Pen",
+            PixelStudioToolKind.Eraser => "Era",
+            PixelStudioToolKind.Line => "Lin",
+            PixelStudioToolKind.Rectangle => "Box",
+            PixelStudioToolKind.Ellipse => "Ell",
+            PixelStudioToolKind.Fill => "Fill",
+            PixelStudioToolKind.Picker => "Pick",
             _ => tool.ToString()
         };
     }
@@ -1869,6 +2505,7 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.LoadProjectDocument => "Open",
             PixelStudioAction.LoadDemoDocument => "Demo",
             PixelStudioAction.ImportImage => "Import",
+            PixelStudioAction.ExportSpriteStrip => "Strip",
             PixelStudioAction.OpenCanvasResizeDialog => "Custom",
             PixelStudioAction.ResizeCanvas16 => "16px",
             PixelStudioAction.ResizeCanvas32 => "32px",
@@ -1895,6 +2532,21 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.FitCanvas => "Fit",
             PixelStudioAction.ResetView => "Reset",
             PixelStudioAction.ExportPng => "Export",
+            PixelStudioAction.ToggleNavigatorPanel => "Nav",
+            PixelStudioAction.ClearSelection => "Deselect",
+            PixelStudioAction.CopySelection => "Copy",
+            PixelStudioAction.CutSelection => "Cut",
+            PixelStudioAction.PasteSelection => "Paste",
+            PixelStudioAction.FlipSelectionHorizontal => "Flip H",
+            PixelStudioAction.FlipSelectionVertical => "Flip V",
+            PixelStudioAction.RotateSelectionClockwise => "Rot+",
+            PixelStudioAction.RotateSelectionCounterClockwise => "Rot-",
+            PixelStudioAction.ScaleSelectionUp => "2x",
+            PixelStudioAction.ScaleSelectionDown => "/2",
+            PixelStudioAction.NudgeSelectionLeft => "Left",
+            PixelStudioAction.NudgeSelectionRight => "Right",
+            PixelStudioAction.NudgeSelectionUp => "Up",
+            PixelStudioAction.NudgeSelectionDown => "Down",
             PixelStudioAction.DockToolSettingsLeft => "Dock Left",
             PixelStudioAction.DockToolSettingsRight => "Dock Right",
             PixelStudioAction.DecreaseBrushSize => "Brush -",
@@ -1903,12 +2555,16 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.TogglePaletteLibrary => "Library",
             PixelStudioAction.AddPaletteSwatch => "Add",
             PixelStudioAction.SaveCurrentPalette => "Save",
+            PixelStudioAction.DuplicateSelectedPalette => "Dup",
+            PixelStudioAction.ImportPalette => "Import",
+            PixelStudioAction.ExportPalette => "Export",
             PixelStudioAction.GeneratePaletteFromImage => "Generate",
             PixelStudioAction.RenameSelectedPalette => "Rename",
             PixelStudioAction.DeleteSelectedPalette => "Delete",
             PixelStudioAction.PalettePromptGenerate => "Yes",
             PixelStudioAction.PalettePromptDismiss => "No",
             PixelStudioAction.PalettePromptDismissForever => "Don't Ask",
+            PixelStudioAction.SwapSecondaryColor => "Swap",
             PixelStudioAction.DecreaseRed => "R-",
             PixelStudioAction.IncreaseRed => "R+",
             PixelStudioAction.DecreaseGreen => "G-",
@@ -1931,7 +2587,21 @@ public sealed class EditorShellRenderer : IDisposable
         return action switch
         {
             PixelStudioContextMenuAction.DisableSelection => "Disable Selection",
+            PixelStudioContextMenuAction.CopySelection => "Copy Selection",
+            PixelStudioContextMenuAction.CutSelection => "Cut Selection",
+            PixelStudioContextMenuAction.PasteSelection => "Paste Selection",
+            PixelStudioContextMenuAction.FlipSelectionHorizontal => "Flip Horizontal",
+            PixelStudioContextMenuAction.FlipSelectionVertical => "Flip Vertical",
+            PixelStudioContextMenuAction.RotateSelectionClockwise => "Rotate Clockwise",
+            PixelStudioContextMenuAction.RotateSelectionCounterClockwise => "Rotate Counterclockwise",
+            PixelStudioContextMenuAction.ScaleSelectionUp => "Scale Up 2x",
+            PixelStudioContextMenuAction.ScaleSelectionDown => "Scale Down /2",
+            PixelStudioContextMenuAction.SetSelectionModeBox => "Box Select",
+            PixelStudioContextMenuAction.SetSelectionModeAutoGlobal => "Automatic - Global",
+            PixelStudioContextMenuAction.SetSelectionModeAutoLocal => "Automatic - Local",
             PixelStudioContextMenuAction.RenamePalette => "Rename Palette",
+            PixelStudioContextMenuAction.DuplicatePalette => "Duplicate Palette",
+            PixelStudioContextMenuAction.ExportPalette => "Export Palette",
             PixelStudioContextMenuAction.DeletePalette => "Delete Palette",
             PixelStudioContextMenuAction.RenameLayer => "Rename Layer",
             PixelStudioContextMenuAction.DuplicateLayer => "Duplicate Layer",
@@ -1945,6 +2615,70 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioContextMenuAction.MoveFrameRight => "Move Frame Right",
             PixelStudioContextMenuAction.DeleteFrame => "Delete Frame",
             _ => action.ToString()
+        };
+    }
+
+    private static string GetColorPickerModeLabel(PixelStudioColorPickerMode mode)
+    {
+        return mode == PixelStudioColorPickerMode.Wheel
+            ? "Wheel"
+            : "RGB+Field";
+    }
+
+    private static string GetThemeStudioActionLabel(EditorThemeStudioAction action)
+    {
+        return action switch
+        {
+            EditorThemeStudioAction.ActivateThemeNameField => "Name",
+            EditorThemeStudioAction.SaveTheme => "Save Theme",
+            EditorThemeStudioAction.CancelThemeStudio => "Close",
+            EditorThemeStudioAction.DeleteTheme => "Delete",
+            _ => action.ToString()
+        };
+    }
+
+    private static string GetThemeRoleLabel(EditorThemeColorRole role)
+    {
+        return role switch
+        {
+            EditorThemeColorRole.Background => "Background",
+            EditorThemeColorRole.MenuBar => "Top Bar",
+            EditorThemeColorRole.SidePanel => "Panels",
+            EditorThemeColorRole.Workspace => "Workspace",
+            EditorThemeColorRole.TabStrip => "Tab Strip",
+            EditorThemeColorRole.TabActive => "Tab Active",
+            EditorThemeColorRole.TabInactive => "Tab Idle",
+            EditorThemeColorRole.StatusBar => "Status Bar",
+            EditorThemeColorRole.Divider => "Dividers",
+            _ => "Accent"
+        };
+    }
+
+    private ThemeColor ResolvePreferenceActionColor(EditorPreferenceAction action)
+    {
+        ThemeColor baseColor = Blend(_theme.TabInactive, _theme.Accent, 0.26f);
+        ThemeColor activeColor = Blend(_theme.TabActive, _theme.Accent, 0.54f);
+
+        return action switch
+        {
+            EditorPreferenceAction.ToggleTheme => activeColor,
+            EditorPreferenceAction.CycleFontSize => Blend(baseColor, _theme.TabActive, 0.18f),
+            EditorPreferenceAction.CycleFontFamily => Blend(baseColor, _theme.MenuBar, 0.10f),
+            EditorPreferenceAction.CycleColorPickerMode when _uiState.PixelStudio.ColorPickerMode == PixelStudioColorPickerMode.Wheel => activeColor,
+            EditorPreferenceAction.CycleColorPickerMode => Blend(baseColor, _theme.TabActive, 0.14f),
+            EditorPreferenceAction.OpenThemeStudio when _uiState.ThemeStudio.Visible => activeColor,
+            EditorPreferenceAction.OpenThemeStudio => Blend(baseColor, _theme.MenuBar, 0.18f),
+            _ => baseColor
+        };
+    }
+
+    private ThemeColor ResolveThemeStudioActionColor(EditorThemeStudioAction action)
+    {
+        return action switch
+        {
+            EditorThemeStudioAction.SaveTheme => Blend(_theme.Accent, _theme.TabActive, 0.52f),
+            EditorThemeStudioAction.DeleteTheme => Blend(_theme.TabInactive, _theme.Accent, 0.18f),
+            _ => Blend(_theme.TabInactive, _theme.MenuBar, 0.16f)
         };
     }
 
@@ -1967,6 +2701,8 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.ApplyCanvasResize => Blend(_theme.Accent, _theme.TabActive, 0.44f),
             PixelStudioAction.ToggleGrid when _uiState.PixelStudio.ShowGrid => _theme.TabActive,
             PixelStudioAction.TogglePlayback when _uiState.PixelStudio.IsPlaying => _theme.TabActive,
+            PixelStudioAction.ToggleNavigatorPanel when _uiState.PixelStudio.NavigatorVisible => _theme.TabActive,
+            PixelStudioAction.ClearSelection when _uiState.PixelStudio.HasSelection => Blend(_theme.Accent, _theme.TabActive, 0.36f),
             PixelStudioAction.DeleteLayer when _uiState.PixelStudio.Layers.Count <= 1 => _theme.Divider,
             PixelStudioAction.DeleteFrame when _uiState.PixelStudio.Frames.Count <= 1 => _theme.Divider,
             PixelStudioAction.ResizeCanvas16 when _uiState.PixelStudio.CanvasWidth == 16 && _uiState.PixelStudio.CanvasHeight == 16 => _theme.TabActive,
@@ -2112,7 +2848,7 @@ public sealed class EditorShellRenderer : IDisposable
         }
     }
 
-    private void DrawPixelPreview(UiRect rect, IReadOnlyList<ThemeColor?> pixels, int canvasWidth, int canvasHeight)
+    private void DrawPixelPreview(string textureKey, UiRect rect, IReadOnlyList<ThemeColor?> pixels, int canvasWidth, int canvasHeight, int revision)
     {
         if (pixels.Count == 0 || canvasWidth <= 0 || canvasHeight <= 0)
         {
@@ -2121,51 +2857,140 @@ public sealed class EditorShellRenderer : IDisposable
 
         ThemeColor checkerLight = Blend(_theme.Workspace, new ThemeColor(0.90f, 0.92f, 0.95f), 0.18f);
         ThemeColor checkerDark = Blend(_theme.Workspace, new ThemeColor(0.08f, 0.09f, 0.12f), 0.22f);
+        UiRect paddedRect = GetPixelPreviewImageRect(rect, canvasWidth, canvasHeight, out _);
+        if (paddedRect.Width <= 0f || paddedRect.Height <= 0f)
+        {
+            return;
+        }
+
+        _imageRenderer.DrawPixelBuffer(textureKey, pixels, canvasWidth, canvasHeight, revision, paddedRect, checkerLight, checkerDark, paddedRect);
+    }
+
+    private void DrawCanvasSelectionOutline(PixelStudioLayoutSnapshot layout, int canvasWidth, int canvasHeight, int cellSize)
+    {
+        if (_uiState.PixelStudio.SelectionUsesMask && _uiState.PixelStudio.SelectionMaskIndices.Count > 0)
+        {
+            DrawMaskSelectionOutline(
+                _uiState.PixelStudio.SelectionMaskIndices,
+                canvasWidth,
+                canvasHeight,
+                layout.CanvasViewportRect.X,
+                layout.CanvasViewportRect.Y,
+                cellSize,
+                cellSize,
+                MathF.Min(Math.Max(cellSize * 0.18f, 1f), 2f),
+                layout.CanvasClipRect);
+            return;
+        }
+
+        UiRect selectionRect = new(
+            layout.CanvasViewportRect.X + (_uiState.PixelStudio.SelectionX * cellSize),
+            layout.CanvasViewportRect.Y + (_uiState.PixelStudio.SelectionY * cellSize),
+            Math.Max(_uiState.PixelStudio.SelectionWidth * cellSize, 1),
+            Math.Max(_uiState.PixelStudio.SelectionHeight * cellSize, 1));
+        DrawRectOutline(selectionRect, MathF.Min(Math.Max(cellSize * 0.18f, 1f), 2f), _theme.Accent, layout.CanvasClipRect);
+    }
+
+    private void DrawPreviewSelectionOutline(UiRect previewImageRect, int canvasWidth, int canvasHeight)
+    {
+        if (_uiState.PixelStudio.SelectionUsesMask && _uiState.PixelStudio.SelectionMaskIndices.Count > 0)
+        {
+            float cellWidth = previewImageRect.Width / Math.Max(canvasWidth, 1);
+            float cellHeight = previewImageRect.Height / Math.Max(canvasHeight, 1);
+            DrawMaskSelectionOutline(
+                _uiState.PixelStudio.SelectionMaskIndices,
+                canvasWidth,
+                canvasHeight,
+                previewImageRect.X,
+                previewImageRect.Y,
+                cellWidth,
+                cellHeight,
+                1f,
+                previewImageRect);
+            return;
+        }
+
+        UiRect previewSelectionRect = new(
+            previewImageRect.X + ((_uiState.PixelStudio.SelectionX / (float)Math.Max(canvasWidth, 1)) * previewImageRect.Width),
+            previewImageRect.Y + ((_uiState.PixelStudio.SelectionY / (float)Math.Max(canvasHeight, 1)) * previewImageRect.Height),
+            Math.Max((_uiState.PixelStudio.SelectionWidth / (float)Math.Max(canvasWidth, 1)) * previewImageRect.Width, 1f),
+            Math.Max((_uiState.PixelStudio.SelectionHeight / (float)Math.Max(canvasHeight, 1)) * previewImageRect.Height, 1f));
+        DrawRectOutline(previewSelectionRect, 1f, _theme.Accent, previewImageRect);
+    }
+
+    private void DrawMaskSelectionOutline(
+        IReadOnlySet<int> selectedIndices,
+        int canvasWidth,
+        int canvasHeight,
+        float originX,
+        float originY,
+        float cellWidth,
+        float cellHeight,
+        float thickness,
+        UiRect clipRect)
+    {
+        foreach (int index in selectedIndices)
+        {
+            if (index < 0 || index >= canvasWidth * canvasHeight)
+            {
+                continue;
+            }
+
+            int x = index % canvasWidth;
+            int y = index / canvasWidth;
+            float left = originX + (x * cellWidth);
+            float top = originY + (y * cellHeight);
+            float width = Math.Max(cellWidth, thickness);
+            float height = Math.Max(cellHeight, thickness);
+
+            if (x == 0 || !selectedIndices.Contains(index - 1))
+            {
+                DrawUiRectClipped(new UiRect(left, top, thickness, height), _theme.Accent, clipRect);
+            }
+
+            if (x == canvasWidth - 1 || !selectedIndices.Contains(index + 1))
+            {
+                DrawUiRectClipped(new UiRect(left + width - thickness, top, thickness, height), _theme.Accent, clipRect);
+            }
+
+            if (y == 0 || !selectedIndices.Contains(index - canvasWidth))
+            {
+                DrawUiRectClipped(new UiRect(left, top, width, thickness), _theme.Accent, clipRect);
+            }
+
+            if (y == canvasHeight - 1 || !selectedIndices.Contains(index + canvasWidth))
+            {
+                DrawUiRectClipped(new UiRect(left, top + height - thickness, width, thickness), _theme.Accent, clipRect);
+            }
+        }
+    }
+
+    private void DrawRectOutline(UiRect rect, float thickness, ThemeColor color, UiRect clipRect)
+    {
+        float resolvedThickness = Math.Max(thickness, 1f);
+        DrawUiRectClipped(new UiRect(rect.X, rect.Y, rect.Width, resolvedThickness), color, clipRect);
+        DrawUiRectClipped(new UiRect(rect.X, rect.Y + rect.Height - resolvedThickness, rect.Width, resolvedThickness), color, clipRect);
+        DrawUiRectClipped(new UiRect(rect.X, rect.Y, resolvedThickness, rect.Height), color, clipRect);
+        DrawUiRectClipped(new UiRect(rect.X + rect.Width - resolvedThickness, rect.Y, resolvedThickness, rect.Height), color, clipRect);
+    }
+
+    private static UiRect GetPixelPreviewImageRect(UiRect rect, int canvasWidth, int canvasHeight)
+    {
+        return GetPixelPreviewImageRect(rect, canvasWidth, canvasHeight, out _);
+    }
+
+    private static UiRect GetPixelPreviewImageRect(UiRect rect, int canvasWidth, int canvasHeight, out float cellSize)
+    {
         UiRect paddedRect = new(rect.X + 6, rect.Y + 6, Math.Max(rect.Width - 12, 0), Math.Max(rect.Height - 12, 0));
         float scale = MathF.Min(
             Math.Max(paddedRect.Width, 1f) / Math.Max(canvasWidth, 1),
             Math.Max(paddedRect.Height, 1f) / Math.Max(canvasHeight, 1));
-        float cellSize = Math.Max(scale, 0.25f);
+        cellSize = Math.Max(scale, 0.25f);
         float viewportWidth = cellSize * canvasWidth;
         float viewportHeight = cellSize * canvasHeight;
         float startX = paddedRect.X + Math.Max((paddedRect.Width - viewportWidth) * 0.5f, 0);
         float startY = paddedRect.Y + Math.Max((paddedRect.Height - viewportHeight) * 0.5f, 0);
-
-        if (cellSize >= 1f)
-        {
-            for (int index = 0; index < pixels.Count; index++)
-            {
-                int x = index % canvasWidth;
-                int y = index / canvasWidth;
-                ThemeColor color = pixels[index] ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
-                DrawUiRectClipped(new UiRect(startX + (x * cellSize), startY + (y * cellSize), cellSize, cellSize), color, paddedRect);
-            }
-
-            return;
-        }
-
-        int sampleColumns = Math.Max(Math.Min((int)MathF.Ceiling(paddedRect.Width), 96), 1);
-        int sampleRows = Math.Max(Math.Min((int)MathF.Ceiling(paddedRect.Height), 96), 1);
-        float sampleWidth = paddedRect.Width / sampleColumns;
-        float sampleHeight = paddedRect.Height / sampleRows;
-        for (int row = 0; row < sampleRows; row++)
-        {
-            int sourceY = Math.Clamp((int)MathF.Floor((row + 0.5f) * canvasHeight / sampleRows), 0, canvasHeight - 1);
-            for (int column = 0; column < sampleColumns; column++)
-            {
-                int sourceX = Math.Clamp((int)MathF.Floor((column + 0.5f) * canvasWidth / sampleColumns), 0, canvasWidth - 1);
-                int index = (sourceY * canvasWidth) + sourceX;
-                ThemeColor color = pixels[index] ?? (((sourceX + sourceY) % 2 == 0) ? checkerLight : checkerDark);
-                DrawUiRectClipped(
-                    new UiRect(
-                        paddedRect.X + (column * sampleWidth),
-                        paddedRect.Y + (row * sampleHeight),
-                        sampleWidth,
-                        sampleHeight),
-                    color,
-                    paddedRect);
-            }
-        }
+        return SnapRect(new UiRect(startX, startY, viewportWidth, viewportHeight));
     }
 
     private static string TrimPath(string path, int maxLength)

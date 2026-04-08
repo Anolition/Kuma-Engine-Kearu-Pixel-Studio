@@ -8,6 +8,10 @@ public sealed class EditorProjectFormState
 
     public EditorTextField ActiveField { get; set; } = EditorTextField.None;
 
+    public bool ProjectNameSelected { get; set; }
+
+    public bool ProjectLibraryPathSelected { get; set; }
+
     public bool FolderPickerVisible { get; set; }
 
     public string FolderPickerPath { get; set; } = string.Empty;

@@ -23,7 +23,9 @@ try
         settings.Editor.Layout,
         settings.Editor.PixelPalettes,
         settings.Editor.ActivePixelPaletteId,
-        settings.Editor.PromptForPaletteGenerationAfterImport);
+        settings.Editor.PromptForPaletteGenerationAfterImport,
+        settings.Editor.PixelColorPickerMode,
+        settings.Editor.CustomThemes);
 
     IApplicationHost host = new WindowHost();
 

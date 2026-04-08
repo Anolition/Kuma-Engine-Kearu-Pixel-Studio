@@ -26,11 +26,29 @@ public sealed class PixelStudioLayoutSnapshot
 
     public required UiRect ToolSettingsPanelRect { get; init; }
 
+    public UiRect? NavigatorPanelRect { get; init; }
+
+    public UiRect? NavigatorPreviewRect { get; init; }
+
     public required UiRect LayersPanelRect { get; init; }
 
     public required UiRect TimelinePanelRect { get; init; }
 
     public required UiRect ActiveColorRect { get; init; }
+
+    public required UiRect SecondaryColorRect { get; init; }
+
+    public UiRect? PaletteColorFieldRect { get; init; }
+
+    public UiRect? PaletteColorWheelRect { get; init; }
+
+    public UiRect? PaletteColorWheelFieldRect { get; init; }
+
+    public UiRect? PaletteAlphaSliderRect { get; init; }
+
+    public UiRect? PaletteAlphaFillRect { get; init; }
+
+    public UiRect? PaletteAlphaKnobRect { get; init; }
 
     public required UiRect PlaybackPreviewRect { get; init; }
 
@@ -94,6 +112,8 @@ public sealed class PixelStudioLayoutSnapshot
 
     public required IReadOnlyList<ActionRect<PixelStudioAction>> CanvasButtons { get; init; }
 
+    public required IReadOnlyList<ActionRect<PixelStudioAction>> SelectionButtons { get; init; }
+
     public required IReadOnlyList<ActionRect<PixelStudioAction>> PaletteButtons { get; init; }
 
     public required IReadOnlyList<ActionRect<PixelStudioAction>> ToolSettingsButtons { get; init; }
@@ -111,6 +131,8 @@ public sealed class PixelStudioLayoutSnapshot
     public required IReadOnlyList<ActionRect<PixelStudioAction>> TimelineButtons { get; init; }
 
     public required IReadOnlyList<IndexedRect> PaletteSwatches { get; init; }
+
+    public required IReadOnlyList<IndexedRect> RecentColorSwatches { get; init; }
 
     public required IReadOnlyList<IndexedRect> SavedPaletteRows { get; init; }
 
@@ -138,9 +160,18 @@ public sealed class PixelStudioLayoutSnapshot
             RightCollapseHandleRect = RightCollapseHandleRect,
             PalettePanelRect = PalettePanelRect,
             ToolSettingsPanelRect = ToolSettingsPanelRect,
+            NavigatorPanelRect = NavigatorPanelRect,
+            NavigatorPreviewRect = NavigatorPreviewRect,
             LayersPanelRect = LayersPanelRect,
             TimelinePanelRect = TimelinePanelRect,
             ActiveColorRect = ActiveColorRect,
+            SecondaryColorRect = SecondaryColorRect,
+            PaletteColorFieldRect = PaletteColorFieldRect,
+            PaletteColorWheelRect = PaletteColorWheelRect,
+            PaletteColorWheelFieldRect = PaletteColorWheelFieldRect,
+            PaletteAlphaSliderRect = PaletteAlphaSliderRect,
+            PaletteAlphaFillRect = PaletteAlphaFillRect,
+            PaletteAlphaKnobRect = PaletteAlphaKnobRect,
             PlaybackPreviewRect = PlaybackPreviewRect,
             PaletteSwatchViewportRect = PaletteSwatchViewportRect,
             PaletteSwatchScrollTrackRect = PaletteSwatchScrollTrackRect,
@@ -172,6 +203,7 @@ public sealed class PixelStudioLayoutSnapshot
             ToolButtons = ToolButtons,
             DocumentButtons = DocumentButtons,
             CanvasButtons = CanvasButtons,
+            SelectionButtons = SelectionButtons,
             PaletteButtons = PaletteButtons,
             ToolSettingsButtons = ToolSettingsButtons,
             PaletteLibraryButtons = PaletteLibraryButtons,
@@ -181,6 +213,7 @@ public sealed class PixelStudioLayoutSnapshot
             LayerButtons = LayerButtons,
             TimelineButtons = TimelineButtons,
             PaletteSwatches = PaletteSwatches,
+            RecentColorSwatches = RecentColorSwatches,
             SavedPaletteRows = SavedPaletteRows,
             LayerRows = LayerRows,
             LayerVisibilityButtons = LayerVisibilityButtons,
@@ -208,9 +241,18 @@ public sealed class PixelStudioLayoutSnapshot
             RightCollapseHandleRect = RightCollapseHandleRect,
             PalettePanelRect = PalettePanelRect,
             ToolSettingsPanelRect = panelRect,
+            NavigatorPanelRect = NavigatorPanelRect,
+            NavigatorPreviewRect = NavigatorPreviewRect,
             LayersPanelRect = LayersPanelRect,
             TimelinePanelRect = TimelinePanelRect,
             ActiveColorRect = ActiveColorRect,
+            SecondaryColorRect = SecondaryColorRect,
+            PaletteColorFieldRect = PaletteColorFieldRect,
+            PaletteColorWheelRect = OffsetRect(PaletteColorWheelRect, deltaX, deltaY),
+            PaletteColorWheelFieldRect = OffsetRect(PaletteColorWheelFieldRect, deltaX, deltaY),
+            PaletteAlphaSliderRect = PaletteAlphaSliderRect,
+            PaletteAlphaFillRect = PaletteAlphaFillRect,
+            PaletteAlphaKnobRect = PaletteAlphaKnobRect,
             PlaybackPreviewRect = PlaybackPreviewRect,
             PaletteSwatchViewportRect = PaletteSwatchViewportRect,
             PaletteSwatchScrollTrackRect = PaletteSwatchScrollTrackRect,
@@ -242,6 +284,7 @@ public sealed class PixelStudioLayoutSnapshot
             ToolButtons = ToolButtons,
             DocumentButtons = DocumentButtons,
             CanvasButtons = CanvasButtons,
+            SelectionButtons = SelectionButtons,
             PaletteButtons = PaletteButtons,
             ToolSettingsButtons = ToolSettingsButtons,
             PaletteLibraryButtons = PaletteLibraryButtons,
@@ -251,6 +294,85 @@ public sealed class PixelStudioLayoutSnapshot
             LayerButtons = LayerButtons,
             TimelineButtons = TimelineButtons,
             PaletteSwatches = PaletteSwatches,
+            RecentColorSwatches = RecentColorSwatches,
+            SavedPaletteRows = SavedPaletteRows,
+            LayerRows = LayerRows,
+            LayerVisibilityButtons = LayerVisibilityButtons,
+            FrameRows = FrameRows,
+            CanvasCells = CanvasCells
+        };
+    }
+
+    public PixelStudioLayoutSnapshot WithNavigatorPanel(UiRect panelRect, UiRect previewRect)
+    {
+        return new PixelStudioLayoutSnapshot
+        {
+            HeaderRect = HeaderRect,
+            CommandBarRect = CommandBarRect,
+            ToolbarRect = ToolbarRect,
+            CanvasPanelRect = CanvasPanelRect,
+            CanvasClipRect = CanvasClipRect,
+            CanvasViewportRect = CanvasViewportRect,
+            LeftSplitterRect = LeftSplitterRect,
+            RightSplitterRect = RightSplitterRect,
+            LeftCollapseHandleRect = LeftCollapseHandleRect,
+            RightCollapseHandleRect = RightCollapseHandleRect,
+            PalettePanelRect = PalettePanelRect,
+            ToolSettingsPanelRect = ToolSettingsPanelRect,
+            NavigatorPanelRect = panelRect,
+            NavigatorPreviewRect = previewRect,
+            LayersPanelRect = LayersPanelRect,
+            TimelinePanelRect = TimelinePanelRect,
+            ActiveColorRect = ActiveColorRect,
+            SecondaryColorRect = SecondaryColorRect,
+            PaletteColorFieldRect = PaletteColorFieldRect,
+            PaletteColorWheelRect = PaletteColorWheelRect,
+            PaletteColorWheelFieldRect = PaletteColorWheelFieldRect,
+            PaletteAlphaSliderRect = PaletteAlphaSliderRect,
+            PaletteAlphaFillRect = PaletteAlphaFillRect,
+            PaletteAlphaKnobRect = PaletteAlphaKnobRect,
+            PlaybackPreviewRect = PlaybackPreviewRect,
+            PaletteSwatchViewportRect = PaletteSwatchViewportRect,
+            PaletteSwatchScrollTrackRect = PaletteSwatchScrollTrackRect,
+            PaletteSwatchScrollThumbRect = PaletteSwatchScrollThumbRect,
+            SavedPaletteViewportRect = SavedPaletteViewportRect,
+            SavedPaletteScrollTrackRect = SavedPaletteScrollTrackRect,
+            SavedPaletteScrollThumbRect = SavedPaletteScrollThumbRect,
+            LayerListViewportRect = LayerListViewportRect,
+            LayerScrollTrackRect = LayerScrollTrackRect,
+            LayerScrollThumbRect = LayerScrollThumbRect,
+            FrameListViewportRect = FrameListViewportRect,
+            FrameScrollTrackRect = FrameScrollTrackRect,
+            FrameScrollThumbRect = FrameScrollThumbRect,
+            PaletteLibraryRect = PaletteLibraryRect,
+            PaletteRenameFieldRect = PaletteRenameFieldRect,
+            LayerRenameFieldRect = LayerRenameFieldRect,
+            FrameRenameFieldRect = FrameRenameFieldRect,
+            PalettePromptRect = PalettePromptRect,
+            ContextMenuRect = ContextMenuRect,
+            CanvasResizeDialogRect = CanvasResizeDialogRect,
+            BrushSizeSliderRect = BrushSizeSliderRect,
+            BrushSizeFillRect = BrushSizeFillRect,
+            BrushSizeKnobRect = BrushSizeKnobRect,
+            BrushPreviewRect = BrushPreviewRect,
+            CameraZoom = CameraZoom,
+            CameraPanX = CameraPanX,
+            CameraPanY = CameraPanY,
+            CanvasCellSize = CanvasCellSize,
+            ToolButtons = ToolButtons,
+            DocumentButtons = DocumentButtons,
+            CanvasButtons = CanvasButtons,
+            SelectionButtons = SelectionButtons,
+            PaletteButtons = PaletteButtons,
+            ToolSettingsButtons = ToolSettingsButtons,
+            PaletteLibraryButtons = PaletteLibraryButtons,
+            PalettePromptButtons = PalettePromptButtons,
+            CanvasResizeDialogButtons = CanvasResizeDialogButtons,
+            ContextMenuButtons = ContextMenuButtons,
+            LayerButtons = LayerButtons,
+            TimelineButtons = TimelineButtons,
+            PaletteSwatches = PaletteSwatches,
+            RecentColorSwatches = RecentColorSwatches,
             SavedPaletteRows = SavedPaletteRows,
             LayerRows = LayerRows,
             LayerVisibilityButtons = LayerVisibilityButtons,

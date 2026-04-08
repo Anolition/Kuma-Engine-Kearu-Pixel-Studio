@@ -5,5 +5,7 @@ public enum ShortcutAction
     ToggleTheme,
     CycleFontSize,
     CycleFontFamily,
-    TogglePreferences
+    TogglePreferences,
+    CycleColorPickerMode,
+    SwapSecondaryColor
 }

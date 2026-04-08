@@ -387,7 +387,8 @@ public static partial class EditorLayoutEngine
                 new EditorMenuEntry { Label = "Preferences", Action = EditorMenuAction.OpenPreferences },
                 new EditorMenuEntry { Label = "Toggle Theme", Action = EditorMenuAction.ToggleTheme },
                 new EditorMenuEntry { Label = "Cycle Font Size", Action = EditorMenuAction.CycleFontSize },
-                new EditorMenuEntry { Label = "Cycle Font Family", Action = EditorMenuAction.CycleFontFamily }
+                new EditorMenuEntry { Label = "Cycle Font Family", Action = EditorMenuAction.CycleFontFamily },
+                new EditorMenuEntry { Label = "Cycle Color Picker", Action = EditorMenuAction.CycleColorPickerMode }
             ],
             "View" =>
             [
@@ -409,6 +410,7 @@ public static partial class EditorLayoutEngine
                 new EditorMenuEntry { Label = "Toggle Theme", Action = EditorMenuAction.ToggleTheme },
                 new EditorMenuEntry { Label = "Cycle Font Size", Action = EditorMenuAction.CycleFontSize },
                 new EditorMenuEntry { Label = "Cycle Font Family", Action = EditorMenuAction.CycleFontFamily },
+                new EditorMenuEntry { Label = "Cycle Color Picker", Action = EditorMenuAction.CycleColorPickerMode },
                 new EditorMenuEntry { Label = "Preferences", Action = EditorMenuAction.OpenPreferences }
             ],
             "Help" =>
@@ -1042,9 +1044,20 @@ public static partial class EditorLayoutEngine
 
         float sidebarAvailableHeight = Math.Max(canvasBottom - contentTop, 0);
         float remainingSidebarHeight = Math.Max(sidebarAvailableHeight - sectionGap, 0);
-        float palettePanelHeight = Math.Clamp(remainingSidebarHeight * 0.56f, 204, 420);
+        float minimumLayersPanelHeight = pixelStudio.PaletteLibraryVisible ? 92f : 124f;
+        float paletteHeightCap = Math.Max(sidebarAvailableHeight - minimumLayersPanelHeight - sectionGap, 160f);
+        float desiredPalettePanelHeight = pixelStudio.PaletteLibraryVisible
+            ? Math.Max(remainingSidebarHeight * 0.68f, 272f)
+            : Math.Max(remainingSidebarHeight * 0.56f, 204f);
+        float palettePanelHeight = Math.Min(desiredPalettePanelHeight, paletteHeightCap);
+        if (sidebarAvailableHeight <= minimumLayersPanelHeight + sectionGap)
+        {
+            palettePanelHeight = sidebarAvailableHeight;
+        }
+
         UiRect palettePanelRect = SnapRect(new UiRect(sidebarX, contentTop, sidebarWidth, Math.Min(palettePanelHeight, sidebarAvailableHeight)));
-        UiRect layersPanelRect = SnapRect(new UiRect(sidebarX, palettePanelRect.Y + palettePanelRect.Height + sectionGap, sidebarWidth, Math.Max(124, canvasBottom - (palettePanelRect.Y + palettePanelRect.Height + sectionGap))));
+        float layersPanelY = palettePanelRect.Y + palettePanelRect.Height + sectionGap;
+        UiRect layersPanelRect = SnapRect(new UiRect(sidebarX, layersPanelY, sidebarWidth, Math.Max(canvasBottom - layersPanelY, 0)));
         UiRect canvasPanelRect = SnapRect(new UiRect(canvasStartX, contentTop, canvasWidth, Math.Max(canvasBottom - contentTop, 0)));
         UiRect leftSplitterRect = SnapRect(new UiRect(canvasPanelRect.X - 4, contentTop, 8, Math.Max(canvasBottom - contentTop, 0)));
         UiRect rightSplitterRect = SnapRect(new UiRect(sidebarX - 4, contentTop, 8, Math.Max(canvasBottom - contentTop, 0)));
@@ -1078,6 +1091,38 @@ public static partial class EditorLayoutEngine
             toolSettingsY,
             resolvedToolSettingsWidth,
             resolvedToolSettingsHeight));
+        UiRect? navigatorPanelRect = null;
+        UiRect? navigatorPreviewRect = null;
+        if (pixelStudio.NavigatorVisible)
+        {
+            GetNavigatorPanelSizeLimits(canvasBodyRect, out float minNavigatorWidth, out float minNavigatorHeight, out float maxNavigatorWidth, out float maxNavigatorHeight);
+            float resolvedNavigatorWidth = float.IsFinite(pixelStudio.NavigatorPanelWidth)
+                ? pixelStudio.NavigatorPanelWidth
+                : minNavigatorWidth;
+            float resolvedNavigatorHeight = float.IsFinite(pixelStudio.NavigatorPanelHeight)
+                ? pixelStudio.NavigatorPanelHeight
+                : minNavigatorHeight;
+            resolvedNavigatorWidth = Math.Clamp(resolvedNavigatorWidth, minNavigatorWidth, maxNavigatorWidth);
+            resolvedNavigatorHeight = Math.Clamp(resolvedNavigatorHeight, minNavigatorHeight, maxNavigatorHeight);
+            float defaultNavigatorX = 12f;
+            float defaultNavigatorY = Math.Max(canvasBodyRect.Height - resolvedNavigatorHeight - 12f, 12f);
+            float navigatorOffsetX = float.IsFinite(pixelStudio.NavigatorPanelOffsetX)
+                ? pixelStudio.NavigatorPanelOffsetX
+                : defaultNavigatorX;
+            float navigatorOffsetY = float.IsFinite(pixelStudio.NavigatorPanelOffsetY)
+                ? pixelStudio.NavigatorPanelOffsetY
+                : defaultNavigatorY;
+            float maxNavigatorOffsetX = Math.Max(canvasBodyRect.Width - resolvedNavigatorWidth, 0f);
+            float maxNavigatorOffsetY = Math.Max(canvasBodyRect.Height - resolvedNavigatorHeight, 0f);
+            navigatorOffsetX = Math.Clamp(navigatorOffsetX, 0f, maxNavigatorOffsetX);
+            navigatorOffsetY = Math.Clamp(navigatorOffsetY, 0f, maxNavigatorOffsetY);
+            navigatorPanelRect = SnapRect(new UiRect(
+                canvasBodyRect.X + navigatorOffsetX,
+                canvasBodyRect.Y + navigatorOffsetY,
+                resolvedNavigatorWidth,
+                resolvedNavigatorHeight));
+            navigatorPreviewRect = GetNavigatorPreviewRect(navigatorPanelRect.Value);
+        }
         UiRect canvasViewportRegion = new(
             canvasBodyRect.X,
             canvasBodyRect.Y,
@@ -1106,9 +1151,10 @@ public static partial class EditorLayoutEngine
             Math.Max(timelinePreviewRect.X - timelineBodyRect.X - 12, 120),
             30);
 
-        List<ActionRect<PixelStudioToolKind>> toolButtons = toolsCollapsed ? [] : CreatePixelToolButtons(toolbarButtonRegion);
+        List<ActionRect<PixelStudioToolKind>> toolButtons = toolsCollapsed ? [] : CreatePixelToolButtons(toolbarButtonRegion, pixelStudio.SelectionMode);
         List<ActionRect<PixelStudioAction>> toolSettingsButtons = [];
         List<ActionRect<PixelStudioAction>> documentButtons = [];
+        List<ActionRect<PixelStudioAction>> selectionButtons = [];
         documentButtons.AddRange(CreateButtonRow(
             commandBarRect.X + 16,
             commandBarRect.Y + 12,
@@ -1119,7 +1165,8 @@ public static partial class EditorLayoutEngine
                 PixelStudioAction.SaveProjectDocument,
                 PixelStudioAction.LoadProjectDocument,
                 PixelStudioAction.ImportImage,
-                PixelStudioAction.ExportPng
+                PixelStudioAction.ExportPng,
+                PixelStudioAction.ExportSpriteStrip
             ],
             118,
             30));
@@ -1153,6 +1200,7 @@ public static partial class EditorLayoutEngine
             [
                 PixelStudioAction.FitCanvas,
                 PixelStudioAction.ResetView,
+                PixelStudioAction.ToggleNavigatorPanel,
                 PixelStudioAction.ToggleTimelinePanel,
                 PixelStudioAction.ZoomOut,
                 PixelStudioAction.ZoomIn,
@@ -1160,6 +1208,45 @@ public static partial class EditorLayoutEngine
             ],
             92,
             28);
+
+        if (pixelStudio.HasSelection || pixelStudio.HasClipboardSelection)
+        {
+            List<PixelStudioAction> selectionActions = [];
+            if (pixelStudio.HasSelection)
+            {
+                selectionActions.Add(PixelStudioAction.ClearSelection);
+                selectionActions.Add(PixelStudioAction.CopySelection);
+                selectionActions.Add(PixelStudioAction.CutSelection);
+                selectionActions.Add(PixelStudioAction.RotateSelectionCounterClockwise);
+                selectionActions.Add(PixelStudioAction.RotateSelectionClockwise);
+                selectionActions.Add(PixelStudioAction.ScaleSelectionDown);
+                selectionActions.Add(PixelStudioAction.ScaleSelectionUp);
+            }
+
+            if (pixelStudio.HasClipboardSelection)
+            {
+                selectionActions.Add(PixelStudioAction.PasteSelection);
+            }
+
+            float selectionEndX = canvasButtons.Count > 0
+                ? canvasButtons.Min(button => button.Rect.X) - 10f
+                : canvasHeaderRect.X + canvasHeaderRect.Width - 12f;
+            float selectionStartX = canvasHeaderRect.X + 94f;
+            float selectionWidth = Math.Max(selectionEndX - selectionStartX, 0f);
+            if (selectionWidth > 80f)
+            {
+                selectionButtons = CreateButtonRow(
+                    selectionStartX,
+                    canvasHeaderRect.Y + 1f,
+                    26,
+                    8,
+                    selectionActions,
+                    54,
+                    10)
+                    .Where(button => button.Rect.X + button.Rect.Width <= selectionEndX)
+                    .ToList();
+            }
+        }
 
         UiRect? brushSizeSliderRect = null;
         UiRect? brushSizeFillRect = null;
@@ -1194,34 +1281,83 @@ public static partial class EditorLayoutEngine
         float paletteInnerWidth = paletteBodyRect.Width;
         float activeLabelHeight = 18;
         float activeSectionY = paletteBodyRect.Y;
-        UiRect activeColorRect = new(paletteInnerX, activeSectionY + activeLabelHeight + 6, 92, 92);
+        UiRect activeColorRect = new(paletteInnerX, activeSectionY + activeLabelHeight + 6, 84, 84);
+        UiRect secondaryColorRect = new(
+            activeColorRect.X + activeColorRect.Width - 34,
+            activeColorRect.Y + activeColorRect.Height - 34,
+            32,
+            32);
+        UiRect? paletteColorFieldRect = null;
+        UiRect? paletteColorWheelRect = null;
+        UiRect? paletteColorWheelFieldRect = null;
+        UiRect? paletteAlphaSliderRect = null;
+        UiRect? paletteAlphaFillRect = null;
+        UiRect? paletteAlphaKnobRect = null;
         List<ActionRect<PixelStudioAction>> paletteButtons = [];
-        float rgbButtonWidth = 42;
-        float rgbButtonGap = 8;
+        List<IndexedRect> recentColorSwatches = [];
+        float rgbButtonWidth = 32;
+        float rgbButtonGap = 4;
         float rgbButtonRightX = paletteBodyRect.X + paletteBodyRect.Width - rgbButtonWidth;
         float rgbButtonLeftX = rgbButtonRightX - rgbButtonWidth - rgbButtonGap;
-        float rgbRowY = activeColorRect.Y + 8;
+        float rgbRowY = activeColorRect.Y + 4;
+        bool useColorWheel = pixelStudio.ColorPickerMode == PixelStudioColorPickerMode.Wheel;
         if (!sidebarCollapsed)
         {
-            foreach ((PixelStudioAction MinusAction, PixelStudioAction PlusAction) row in new[]
-                     {
-                         (PixelStudioAction.DecreaseRed, PixelStudioAction.IncreaseRed),
-                         (PixelStudioAction.DecreaseGreen, PixelStudioAction.IncreaseGreen),
-                         (PixelStudioAction.DecreaseBlue, PixelStudioAction.IncreaseBlue)
-                     })
+            if (useColorWheel)
             {
-                paletteButtons.Add(new ActionRect<PixelStudioAction>
-                {
-                    Action = row.MinusAction,
-                    Rect = new UiRect(rgbButtonLeftX, rgbRowY, rgbButtonWidth, 28)
-                });
-                paletteButtons.Add(new ActionRect<PixelStudioAction>
-                {
-                    Action = row.PlusAction,
-                    Rect = new UiRect(rgbButtonRightX, rgbRowY, rgbButtonWidth, 28)
-                });
-                rgbRowY += 32;
+                float wheelSize = Math.Min(
+                    Math.Clamp(MathF.Min(paletteInnerWidth, paletteBodyRect.Height * 0.34f), 128f, 172f),
+                    paletteInnerWidth);
+                float wheelY = activeColorRect.Y + activeColorRect.Height + 16f;
+                float wheelX = paletteInnerX + Math.Max((paletteInnerWidth - wheelSize) * 0.5f, 0f);
+                paletteColorWheelRect = new UiRect(wheelX, wheelY, wheelSize, wheelSize);
+                paletteColorWheelFieldRect = GetPaletteColorWheelFieldRect(paletteColorWheelRect.Value);
             }
+            else
+            {
+                foreach ((PixelStudioAction MinusAction, PixelStudioAction PlusAction) row in new[]
+                         {
+                             (PixelStudioAction.DecreaseRed, PixelStudioAction.IncreaseRed),
+                             (PixelStudioAction.DecreaseGreen, PixelStudioAction.IncreaseGreen),
+                             (PixelStudioAction.DecreaseBlue, PixelStudioAction.IncreaseBlue)
+                         })
+                {
+                    paletteButtons.Add(new ActionRect<PixelStudioAction>
+                    {
+                        Action = row.MinusAction,
+                        Rect = new UiRect(rgbButtonLeftX, rgbRowY, rgbButtonWidth, 28)
+                    });
+                    paletteButtons.Add(new ActionRect<PixelStudioAction>
+                    {
+                        Action = row.PlusAction,
+                        Rect = new UiRect(rgbButtonRightX, rgbRowY, rgbButtonWidth, 28)
+                    });
+                    rgbRowY += 32;
+                }
+
+                float colorFieldY = activeColorRect.Y + activeColorRect.Height + 18;
+                float colorFieldHeight = 76;
+                paletteColorFieldRect = new UiRect(
+                    paletteInnerX,
+                    colorFieldY,
+                    paletteInnerWidth,
+                    colorFieldHeight);
+            }
+
+            float infoStartX = activeColorRect.X + activeColorRect.Width + 12f;
+            float infoRightX = useColorWheel
+                ? paletteBodyRect.X + paletteBodyRect.Width
+                : rgbButtonLeftX - 10f;
+            float swapButtonWidth = Math.Clamp(infoRightX - infoStartX, 56f, 92f);
+            paletteButtons.Add(new ActionRect<PixelStudioAction>
+            {
+                Action = PixelStudioAction.SwapSecondaryColor,
+                Rect = new UiRect(
+                    infoStartX,
+                    activeColorRect.Y + activeColorRect.Height - 28f,
+                    swapButtonWidth,
+                    24f)
+            });
         }
 
         List<ActionRect<PixelStudioAction>> paletteLibraryButtons = [];
@@ -1242,7 +1378,9 @@ public static partial class EditorLayoutEngine
         UiRect? canvasResizeDialogRect = null;
         List<ActionRect<PixelStudioAction>> canvasResizeDialogButtons = [];
 
-        float librarySectionHeight = pixelStudio.PaletteLibraryVisible ? 164 : 0;
+        float librarySectionHeight = pixelStudio.PaletteLibraryVisible
+            ? Math.Clamp(paletteBodyRect.Height * 0.46f, 188f, 244f)
+            : 0;
         float librarySectionY = pixelStudio.PaletteLibraryVisible
             ? paletteBodyRect.Y + paletteBodyRect.Height - librarySectionHeight
             : 0;
@@ -1276,6 +1414,7 @@ public static partial class EditorLayoutEngine
             float libraryButtonWidth = MathF.Floor((paletteLibraryRect.Value.Width - 16 - (palettePanelGap * 2)) / 3f);
             float libraryButtonX = paletteLibraryRect.Value.X + 8;
             float libraryButtonY = paletteLibraryRect.Value.Y + 30;
+            float libraryButtonRowTwoY = libraryButtonY + 36;
 
             paletteLibraryButtons =
             [
@@ -1286,17 +1425,32 @@ public static partial class EditorLayoutEngine
                 },
                 new ActionRect<PixelStudioAction>
                 {
-                    Action = PixelStudioAction.RenameSelectedPalette,
+                    Action = PixelStudioAction.DuplicateSelectedPalette,
                     Rect = new UiRect(libraryButtonX + libraryButtonWidth + palettePanelGap, libraryButtonY, libraryButtonWidth, 30)
                 },
                 new ActionRect<PixelStudioAction>
                 {
-                    Action = PixelStudioAction.DeleteSelectedPalette,
+                    Action = PixelStudioAction.ExportPalette,
                     Rect = new UiRect(libraryButtonX + ((libraryButtonWidth + palettePanelGap) * 2), libraryButtonY, libraryButtonWidth, 30)
+                },
+                new ActionRect<PixelStudioAction>
+                {
+                    Action = PixelStudioAction.ImportPalette,
+                    Rect = new UiRect(libraryButtonX, libraryButtonRowTwoY, libraryButtonWidth, 30)
+                },
+                new ActionRect<PixelStudioAction>
+                {
+                    Action = PixelStudioAction.RenameSelectedPalette,
+                    Rect = new UiRect(libraryButtonX + libraryButtonWidth + palettePanelGap, libraryButtonRowTwoY, libraryButtonWidth, 30)
+                },
+                new ActionRect<PixelStudioAction>
+                {
+                    Action = PixelStudioAction.DeleteSelectedPalette,
+                    Rect = new UiRect(libraryButtonX + ((libraryButtonWidth + palettePanelGap) * 2), libraryButtonRowTwoY, libraryButtonWidth, 30)
                 }
             ];
 
-            float libraryContentY = libraryButtonY + 38;
+            float libraryContentY = libraryButtonRowTwoY + 38;
 
             if (pixelStudio.PaletteRenameActive)
             {
@@ -1373,7 +1527,56 @@ public static partial class EditorLayoutEngine
         List<IndexedRect> paletteSwatches = [];
         if (!sidebarCollapsed)
         {
-            float swatchViewportY = activeColorRect.Y + activeColorRect.Height + 34;
+            float pickerBottom = paletteColorFieldRect is not null
+                ? paletteColorFieldRect.Value.Y + paletteColorFieldRect.Value.Height
+                : paletteColorWheelRect is not null
+                    ? paletteColorWheelRect.Value.Y + paletteColorWheelRect.Value.Height
+                    : activeColorRect.Y + activeColorRect.Height;
+            float alphaSliderY = pickerBottom + 24f;
+            float alphaSliderHeight = 18f;
+            paletteAlphaSliderRect = new UiRect(
+                paletteInnerX,
+                alphaSliderY,
+                Math.Max(paletteInnerWidth, 0f),
+                alphaSliderHeight);
+            float alphaRatio = Math.Clamp(pixelStudio.ActiveColorAlpha, 0f, 1f);
+            float alphaTrackWidth = Math.Max(paletteAlphaSliderRect.Value.Width - 6f, 0f);
+            float alphaFillWidth = alphaTrackWidth * alphaRatio;
+            paletteAlphaFillRect = new UiRect(
+                paletteAlphaSliderRect.Value.X + 3f,
+                paletteAlphaSliderRect.Value.Y + 3f,
+                alphaFillWidth,
+                Math.Max(paletteAlphaSliderRect.Value.Height - 6f, 0f));
+            float alphaKnobX = paletteAlphaSliderRect.Value.X + 3f + alphaFillWidth - 6f;
+            alphaKnobX = Math.Clamp(alphaKnobX, paletteAlphaSliderRect.Value.X, paletteAlphaSliderRect.Value.X + Math.Max(paletteAlphaSliderRect.Value.Width - 12f, 0f));
+            paletteAlphaKnobRect = new UiRect(
+                alphaKnobX,
+                paletteAlphaSliderRect.Value.Y + 2f,
+                12f,
+                Math.Max(paletteAlphaSliderRect.Value.Height - 4f, 0f));
+
+            float recentColorsY = paletteAlphaSliderRect.Value.Y + paletteAlphaSliderRect.Value.Height + 10f;
+            float recentSwatchSize = 22f;
+            float recentSwatchGap = 6f;
+            int maxRecentColors = Math.Max((int)MathF.Floor((paletteInnerWidth + recentSwatchGap) / (recentSwatchSize + recentSwatchGap)), 1);
+            int visibleRecentColorCount = Math.Min(pixelStudio.RecentColors.Count, maxRecentColors);
+            for (int recentIndex = 0; recentIndex < visibleRecentColorCount; recentIndex++)
+            {
+                recentColorSwatches.Add(new IndexedRect
+                {
+                    Index = recentIndex,
+                    Rect = new UiRect(
+                        paletteInnerX + (recentIndex * (recentSwatchSize + recentSwatchGap)),
+                        recentColorsY,
+                        recentSwatchSize,
+                        recentSwatchSize)
+                });
+            }
+
+            float recentBottom = visibleRecentColorCount > 0
+                ? recentColorsY + recentSwatchSize
+                : paletteAlphaSliderRect.Value.Y + paletteAlphaSliderRect.Value.Height;
+            float swatchViewportY = recentBottom + 28f;
             float swatchViewportHeight = Math.Max(actionsY - palettePanelGap - swatchViewportY, 54);
             UiRect swatchViewportFrameRect = new(paletteInnerX, swatchViewportY, paletteInnerWidth, swatchViewportHeight);
             int paletteColumns = Math.Max((int)MathF.Floor((Math.Max(swatchViewportFrameRect.Width - 14, 48) + 6) / 36), 3);
@@ -1693,9 +1896,18 @@ public static partial class EditorLayoutEngine
             RightCollapseHandleRect = rightCollapseHandleRect,
             PalettePanelRect = palettePanelRect,
             ToolSettingsPanelRect = toolSettingsPanelRect,
+            NavigatorPanelRect = navigatorPanelRect,
+            NavigatorPreviewRect = navigatorPreviewRect,
             LayersPanelRect = layersPanelRect,
             TimelinePanelRect = timelineRect,
             ActiveColorRect = activeColorRect,
+            SecondaryColorRect = secondaryColorRect,
+            PaletteColorFieldRect = paletteColorFieldRect,
+            PaletteColorWheelRect = paletteColorWheelRect,
+            PaletteColorWheelFieldRect = paletteColorWheelFieldRect,
+            PaletteAlphaSliderRect = paletteAlphaSliderRect,
+            PaletteAlphaFillRect = paletteAlphaFillRect,
+            PaletteAlphaKnobRect = paletteAlphaKnobRect,
             PlaybackPreviewRect = playbackPreviewRect,
             PaletteSwatchViewportRect = paletteSwatchViewportRect,
             PaletteSwatchScrollTrackRect = paletteSwatchScrollTrackRect,
@@ -1727,6 +1939,7 @@ public static partial class EditorLayoutEngine
             ToolButtons = toolButtons,
             DocumentButtons = documentButtons,
             CanvasButtons = canvasButtons,
+            SelectionButtons = selectionButtons,
             PaletteButtons = paletteButtons,
             ToolSettingsButtons = toolSettingsButtons,
             PaletteLibraryButtons = paletteLibraryButtons,
@@ -1736,6 +1949,7 @@ public static partial class EditorLayoutEngine
             LayerButtons = layerButtons,
             TimelineButtons = timelineButtons,
             PaletteSwatches = paletteSwatches,
+            RecentColorSwatches = recentColorSwatches,
             SavedPaletteRows = savedPaletteRows,
             LayerRows = layerRows,
             LayerVisibilityButtons = layerVisibilityButtons,
@@ -1744,14 +1958,53 @@ public static partial class EditorLayoutEngine
         };
     }
 
-    private static List<ActionRect<PixelStudioToolKind>> CreatePixelToolButtons(UiRect toolbarRect)
+    private static UiRect GetPaletteColorWheelFieldRect(UiRect wheelRect)
+    {
+        float centerX = wheelRect.X + (wheelRect.Width * 0.5f);
+        float centerY = wheelRect.Y + (wheelRect.Height * 0.5f);
+        float outerRadius = MathF.Min(wheelRect.Width, wheelRect.Height) * 0.5f;
+        float ringThickness = Math.Clamp(outerRadius * 0.28f, 12f, 18f);
+        float innerRadius = Math.Max(outerRadius - ringThickness - 3f, 0f);
+        float fieldHalfSize = innerRadius / MathF.Sqrt(2f);
+        float fieldSize = Math.Max(fieldHalfSize * 2f, 0f);
+        return new UiRect(
+            centerX - fieldHalfSize,
+            centerY - fieldHalfSize,
+            fieldSize,
+            fieldSize);
+    }
+
+    private static void GetNavigatorPanelSizeLimits(UiRect canvasBodyRect, out float minWidth, out float minHeight, out float maxWidth, out float maxHeight)
+    {
+        minWidth = Math.Clamp(MathF.Min(canvasBodyRect.Width * 0.24f, 196f), 144f, 196f);
+        minHeight = Math.Clamp(MathF.Min(canvasBodyRect.Height * 0.30f, 196f), 144f, 196f);
+        minWidth = Math.Min(minWidth, Math.Max(canvasBodyRect.Width, 0f));
+        minHeight = Math.Min(minHeight, Math.Max(canvasBodyRect.Height, 0f));
+        maxWidth = Math.Min(Math.Max(minWidth, MathF.Min(canvasBodyRect.Width * 0.58f, 420f)), Math.Max(canvasBodyRect.Width, minWidth));
+        maxHeight = Math.Min(Math.Max(minHeight, MathF.Min(canvasBodyRect.Height * 0.58f, 420f)), Math.Max(canvasBodyRect.Height, minHeight));
+    }
+
+    private static UiRect GetNavigatorPreviewRect(UiRect panelRect)
+    {
+        const float previewInset = 16f;
+        return new UiRect(
+            panelRect.X + previewInset,
+            panelRect.Y + previewInset,
+            Math.Max(panelRect.Width - (previewInset * 2f), 0f),
+            Math.Max(panelRect.Height - (previewInset * 2f), 0f));
+    }
+
+    private static List<ActionRect<PixelStudioToolKind>> CreatePixelToolButtons(UiRect toolbarRect, PixelStudioSelectionMode selectionMode)
     {
         PixelStudioToolKind[] toolOrder =
         [
             PixelStudioToolKind.Select,
+            PixelStudioToolKind.Hand,
             PixelStudioToolKind.Pencil,
             PixelStudioToolKind.Eraser,
             PixelStudioToolKind.Line,
+            PixelStudioToolKind.Rectangle,
+            PixelStudioToolKind.Ellipse,
             PixelStudioToolKind.Fill,
             PixelStudioToolKind.Picker
         ];
@@ -1761,7 +2014,7 @@ public static partial class EditorLayoutEngine
             Id = "PixelStudio.Tools.Buttons",
             Bounds = toolbarRect,
             Padding = 0,
-            Spacing = 10
+            Spacing = 8
         };
 
         IReadOnlyList<UiLayoutPlacement<PixelStudioToolKind>> placements = LayoutVertical(
@@ -1769,12 +2022,12 @@ public static partial class EditorLayoutEngine
             toolOrder.Select(tool => new UiLayoutItem<PixelStudioToolKind>
             {
                 Id = $"PixelStudio.Tool.{tool}",
-                Label = GetPixelToolLabel(tool),
+                Label = GetPixelToolLabel(tool, selectionMode),
                 Value = tool,
                 MinWidth = toolbarRect.Width,
                 MaxWidth = toolbarRect.Width,
-                Height = 42,
-                HorizontalPadding = 24
+                Height = 36,
+                HorizontalPadding = 10
             }).ToList());
 
         return placements
@@ -1881,16 +2134,24 @@ public static partial class EditorLayoutEngine
         };
     }
 
-    private static string GetPixelToolLabel(PixelStudioToolKind tool)
+    private static string GetPixelToolLabel(PixelStudioToolKind tool, PixelStudioSelectionMode selectionMode)
     {
         return tool switch
         {
-            PixelStudioToolKind.Select => "Select",
-            PixelStudioToolKind.Pencil => "Pencil",
-            PixelStudioToolKind.Eraser => "Eraser",
-            PixelStudioToolKind.Line => "Line",
+            PixelStudioToolKind.Select => selectionMode switch
+            {
+                PixelStudioSelectionMode.AutoGlobal => "AG",
+                PixelStudioSelectionMode.AutoLocal => "AL",
+                _ => "Sel"
+            },
+            PixelStudioToolKind.Hand => "Pan",
+            PixelStudioToolKind.Pencil => "Pen",
+            PixelStudioToolKind.Eraser => "Era",
+            PixelStudioToolKind.Line => "Lin",
+            PixelStudioToolKind.Rectangle => "Box",
+            PixelStudioToolKind.Ellipse => "Ell",
             PixelStudioToolKind.Fill => "Fill",
-            PixelStudioToolKind.Picker => "Picker",
+            PixelStudioToolKind.Picker => "Pick",
             _ => tool.ToString()
         };
     }
@@ -1904,6 +2165,7 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.LoadProjectDocument => "Open",
             PixelStudioAction.LoadDemoDocument => "Demo",
             PixelStudioAction.ImportImage => "Import",
+            PixelStudioAction.ExportSpriteStrip => "Strip",
             PixelStudioAction.OpenCanvasResizeDialog => "Custom",
             PixelStudioAction.ResizeCanvas16 => "16px",
             PixelStudioAction.ResizeCanvas32 => "32px",
@@ -1930,6 +2192,21 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.FitCanvas => "Fit",
             PixelStudioAction.ResetView => "Reset",
             PixelStudioAction.ExportPng => "Export",
+            PixelStudioAction.ToggleNavigatorPanel => "Nav",
+            PixelStudioAction.ClearSelection => "Deselect",
+            PixelStudioAction.CopySelection => "Copy",
+            PixelStudioAction.CutSelection => "Cut",
+            PixelStudioAction.PasteSelection => "Paste",
+            PixelStudioAction.FlipSelectionHorizontal => "Flip H",
+            PixelStudioAction.FlipSelectionVertical => "Flip V",
+            PixelStudioAction.RotateSelectionClockwise => "Rot+",
+            PixelStudioAction.RotateSelectionCounterClockwise => "Rot-",
+            PixelStudioAction.ScaleSelectionUp => "2x",
+            PixelStudioAction.ScaleSelectionDown => "/2",
+            PixelStudioAction.NudgeSelectionLeft => "Left",
+            PixelStudioAction.NudgeSelectionRight => "Right",
+            PixelStudioAction.NudgeSelectionUp => "Up",
+            PixelStudioAction.NudgeSelectionDown => "Down",
             PixelStudioAction.DockToolSettingsLeft => "Dock Left",
             PixelStudioAction.DockToolSettingsRight => "Dock Right",
             PixelStudioAction.DecreaseBrushSize => "Brush -",
@@ -1938,12 +2215,16 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.TogglePaletteLibrary => "Library",
             PixelStudioAction.AddPaletteSwatch => "Add",
             PixelStudioAction.SaveCurrentPalette => "Save",
+            PixelStudioAction.DuplicateSelectedPalette => "Dup",
+            PixelStudioAction.ImportPalette => "Import",
+            PixelStudioAction.ExportPalette => "Export",
             PixelStudioAction.GeneratePaletteFromImage => "Generate",
             PixelStudioAction.RenameSelectedPalette => "Rename",
             PixelStudioAction.DeleteSelectedPalette => "Delete",
             PixelStudioAction.PalettePromptGenerate => "Yes",
             PixelStudioAction.PalettePromptDismiss => "No",
             PixelStudioAction.PalettePromptDismissForever => "Don't Ask",
+            PixelStudioAction.SwapSecondaryColor => "Swap",
             PixelStudioAction.DecreaseRed => "R-",
             PixelStudioAction.IncreaseRed => "R+",
             PixelStudioAction.DecreaseGreen => "G-",

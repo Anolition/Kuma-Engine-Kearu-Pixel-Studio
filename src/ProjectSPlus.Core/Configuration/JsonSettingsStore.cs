@@ -97,7 +97,9 @@ public sealed class JsonSettingsStore
                 Layout = normalizedLayout,
                 PixelPalettes = settings.Editor.PixelPalettes,
                 ActivePixelPaletteId = settings.Editor.ActivePixelPaletteId,
-                PromptForPaletteGenerationAfterImport = settings.Editor.PromptForPaletteGenerationAfterImport
+                PromptForPaletteGenerationAfterImport = settings.Editor.PromptForPaletteGenerationAfterImport,
+                PixelColorPickerMode = settings.Editor.PixelColorPickerMode,
+                CustomThemes = settings.Editor.CustomThemes
             }
         };
     }

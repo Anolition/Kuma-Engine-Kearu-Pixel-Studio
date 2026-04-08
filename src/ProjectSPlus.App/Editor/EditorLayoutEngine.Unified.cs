@@ -1,3 +1,4 @@
+using ProjectSPlus.Core.Configuration;
 using ProjectSPlus.Editor.Shell;
 
 namespace ProjectSPlus.App.Editor;
@@ -232,6 +233,13 @@ public static partial class EditorLayoutEngine
         UiRect? preferenceViewportRect = null;
         UiRect? preferenceScrollTrackRect = null;
         UiRect? preferenceScrollThumbRect = null;
+        List<ActionRect<EditorThemeStudioAction>> themeStudioButtons = [];
+        List<ActionRect<EditorThemeColorRole>> themeStudioRoleButtons = [];
+        UiRect? themeStudioDialogRect = null;
+        UiRect? themeStudioNameFieldRect = null;
+        UiRect? themeStudioWheelRect = null;
+        UiRect? themeStudioWheelFieldRect = null;
+        UiRect? themeStudioPreviewRect = null;
 
         UiRect? layoutInfoPanelRect = null;
         UiRect? scratchInfoPanelRect = null;
@@ -430,7 +438,7 @@ public static partial class EditorLayoutEngine
             }
             case EditorPageKind.Preferences:
             {
-                float generalHeight = Math.Clamp(workspaceInnerRect.Height * 0.30f, 214, 264);
+                float generalHeight = Math.Clamp(workspaceInnerRect.Height * 0.38f, 258, 324);
                 preferencesGeneralPanelRect = new UiRect(workspaceInnerRect.X, workspaceInnerRect.Y, workspaceInnerRect.Width, generalHeight);
                 preferencesShortcutPanelRect = new UiRect(
                     workspaceInnerRect.X,
@@ -442,7 +450,7 @@ public static partial class EditorLayoutEngine
                 UiPanel preferenceActionPanel = new()
                 {
                     Id = "Preferences.Actions",
-                    Bounds = new UiRect(generalBodyRect.X, generalBodyRect.Y + 22, generalBodyRect.Width, 112),
+                    Bounds = new UiRect(generalBodyRect.X, generalBodyRect.Y + 54, generalBodyRect.Width, 160),
                     Padding = 0,
                     Spacing = 12
                 };
@@ -452,12 +460,85 @@ public static partial class EditorLayoutEngine
                     {
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Theme", Label = $"Theme: {uiState.ThemeLabel}", Value = EditorPreferenceAction.ToggleTheme, MinWidth = 188, MaxWidth = 242, Height = 50, HorizontalPadding = 36, Priority = 3 },
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Size", Label = $"Text: {uiState.FontSizeLabel}", Value = EditorPreferenceAction.CycleFontSize, MinWidth = 178, MaxWidth = 232, Height = 50, HorizontalPadding = 36, Priority = 3 },
-                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Font", Label = $"Font: {uiState.FontFamily}", Value = EditorPreferenceAction.CycleFontFamily, MinWidth = 224, MaxWidth = 320, Height = 50, HorizontalPadding = 36, Priority = 2 }
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Font", Label = $"Font: {uiState.FontFamily}", Value = EditorPreferenceAction.CycleFontFamily, MinWidth = 224, MaxWidth = 320, Height = 50, HorizontalPadding = 36, Priority = 2 },
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Picker", Label = $"Picker: {GetColorPickerModeLabel(uiState.PixelStudio.ColorPickerMode)}", Value = EditorPreferenceAction.CycleColorPickerMode, MinWidth = 216, MaxWidth = 284, Height = 50, HorizontalPadding = 30, Priority = 3 },
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.ThemeStudio", Label = "Theme Studio", Value = EditorPreferenceAction.OpenThemeStudio, MinWidth = 198, MaxWidth = 250, Height = 50, HorizontalPadding = 30, Priority = 3 }
                     },
                     wrap: true);
                 preferenceActions = preferencePlacements
                     .Select(action => new ActionRect<EditorPreferenceAction> { Action = action.Value, Rect = action.Rect })
                     .ToList();
+
+                if (uiState.ThemeStudio.Visible)
+                {
+                    float dialogWidth = Math.Min(760f, Math.Max(workspaceInnerRect.Width - 28f, 360f));
+                    float dialogHeight = Math.Min(452f, Math.Max(workspaceInnerRect.Height - 28f, 320f));
+                    themeStudioDialogRect = new UiRect(
+                        workspaceInnerRect.X + Math.Max((workspaceInnerRect.Width - dialogWidth) * 0.5f, 0f),
+                        workspaceInnerRect.Y + Math.Max((workspaceInnerRect.Height - dialogHeight) * 0.5f, 0f),
+                        dialogWidth,
+                        dialogHeight);
+
+                    UiRect dialogContentRect = Inset(themeStudioDialogRect.Value, 16f);
+                    themeStudioNameFieldRect = new UiRect(dialogContentRect.X, dialogContentRect.Y + 60f, dialogContentRect.Width - 160f, 38f);
+                    themeStudioPreviewRect = new UiRect(dialogContentRect.X + dialogContentRect.Width - 116f, dialogContentRect.Y + 48f, 96f, 96f);
+
+                    float roleAreaTop = themeStudioNameFieldRect.Value.Y + themeStudioNameFieldRect.Value.Height + 24f;
+                    float roleColumnWidth = Math.Min(168f, Math.Max((dialogContentRect.Width * 0.42f) - 12f, 132f));
+                    float roleButtonHeight = 32f;
+                    float roleGap = 8f;
+                    float roleSecondColumnX = dialogContentRect.X + roleColumnWidth + 10f;
+                    EditorThemeColorRole[] roles = Enum.GetValues<EditorThemeColorRole>();
+                    for (int index = 0; index < roles.Length; index++)
+                    {
+                        int column = index % 2;
+                        int row = index / 2;
+                        float buttonX = column == 0 ? dialogContentRect.X : roleSecondColumnX;
+                        float buttonWidth = column == 0
+                            ? roleColumnWidth
+                            : Math.Max(roleColumnWidth - 4f, 128f);
+                        themeStudioRoleButtons.Add(new ActionRect<EditorThemeColorRole>
+                        {
+                            Action = roles[index],
+                            Rect = new UiRect(
+                                buttonX,
+                                roleAreaTop + (row * (roleButtonHeight + roleGap)),
+                                buttonWidth,
+                                roleButtonHeight)
+                        });
+                    }
+
+                    float roleAreaWidth = roleSecondColumnX + Math.Max(roleColumnWidth - 4f, 128f) - dialogContentRect.X;
+                    float wheelAvailableWidth = Math.Max(dialogContentRect.Width - roleAreaWidth - 28f, 140f);
+                    float wheelSize = Math.Clamp(MathF.Min(wheelAvailableWidth, dialogContentRect.Height - 168f), 140f, 208f);
+                    float wheelX = dialogContentRect.X + dialogContentRect.Width - wheelSize - 20f;
+                    float wheelY = roleAreaTop + 10f;
+                    themeStudioWheelRect = new UiRect(wheelX, wheelY, wheelSize, wheelSize);
+                    themeStudioWheelFieldRect = GetPaletteColorWheelFieldRect(themeStudioWheelRect.Value);
+
+                    float dialogButtonWidth = 124f;
+                    float buttonGap = 10f;
+                    float buttonY = themeStudioDialogRect.Value.Y + themeStudioDialogRect.Value.Height - 54f;
+                    float buttonRight = themeStudioDialogRect.Value.X + themeStudioDialogRect.Value.Width - 16f;
+                    themeStudioButtons.Add(new ActionRect<EditorThemeStudioAction>
+                    {
+                        Action = EditorThemeStudioAction.CancelThemeStudio,
+                        Rect = new UiRect(buttonRight - dialogButtonWidth, buttonY, dialogButtonWidth, 32f)
+                    });
+                    themeStudioButtons.Add(new ActionRect<EditorThemeStudioAction>
+                    {
+                        Action = EditorThemeStudioAction.SaveTheme,
+                        Rect = new UiRect(buttonRight - ((dialogButtonWidth + buttonGap) * 2), buttonY, dialogButtonWidth, 32f)
+                    });
+                    if (uiState.ThemeStudio.CanDelete)
+                    {
+                        themeStudioButtons.Add(new ActionRect<EditorThemeStudioAction>
+                        {
+                            Action = EditorThemeStudioAction.DeleteTheme,
+                            Rect = new UiRect(buttonRight - ((dialogButtonWidth + buttonGap) * 3), buttonY, dialogButtonWidth, 32f)
+                        });
+                    }
+                }
 
                 UiRect shortcutBodyRect = GetPanelBodyRect(preferencesShortcutPanelRect.Value);
                 UiRect shortcutViewportFrame = new(
@@ -569,6 +650,11 @@ public static partial class EditorLayoutEngine
             PreferenceViewportRect = preferenceViewportRect,
             PreferenceScrollTrackRect = preferenceScrollTrackRect,
             PreferenceScrollThumbRect = preferenceScrollThumbRect,
+            ThemeStudioDialogRect = themeStudioDialogRect,
+            ThemeStudioNameFieldRect = themeStudioNameFieldRect,
+            ThemeStudioWheelRect = themeStudioWheelRect,
+            ThemeStudioWheelFieldRect = themeStudioWheelFieldRect,
+            ThemeStudioPreviewRect = themeStudioPreviewRect,
             LayoutInfoPanelRect = layoutInfoPanelRect,
             ScratchInfoPanelRect = scratchInfoPanelRect,
             LeftPanelRecentProjectRows = leftPanelRecentRows,
@@ -580,6 +666,8 @@ public static partial class EditorLayoutEngine
             TabCloseButtons = tabCloseButtons,
             ProjectFormActions = projectFormActions,
             PreferenceActions = preferenceActions,
+            ThemeStudioButtons = themeStudioButtons,
+            ThemeStudioRoleButtons = themeStudioRoleButtons,
             FolderPickerActions = folderPickerActions,
             FolderPickerRows = folderPickerRows,
             FolderPickerRect = folderPickerRect,
@@ -590,5 +678,12 @@ public static partial class EditorLayoutEngine
             FolderPickerScrollThumbRect = folderPickerScrollThumbRect,
             PixelStudio = pixelStudioLayout
         };
+    }
+
+    private static string GetColorPickerModeLabel(PixelStudioColorPickerMode mode)
+    {
+        return mode == PixelStudioColorPickerMode.Wheel
+            ? "Wheel"
+            : "RGB+Field";
     }
 }

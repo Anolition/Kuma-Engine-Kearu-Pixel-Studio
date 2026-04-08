@@ -32,6 +32,7 @@ public sealed class WindowHost : IApplicationHost
             foreach (IKeyboard keyboard in inputContext.Keyboards)
             {
                 keyboard.KeyDown += scene.OnKeyDown;
+                keyboard.KeyUp += scene.OnKeyUp;
                 keyboard.KeyChar += scene.OnKeyChar;
             }
 

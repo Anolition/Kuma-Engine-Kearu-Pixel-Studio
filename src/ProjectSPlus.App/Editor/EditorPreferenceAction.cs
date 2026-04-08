@@ -4,5 +4,7 @@ public enum EditorPreferenceAction
 {
     ToggleTheme,
     CycleFontSize,
-    CycleFontFamily
+    CycleFontFamily,
+    CycleColorPickerMode,
+    OpenThemeStudio
 }

@@ -37,7 +37,13 @@ public sealed class PixelStudioViewState
 
     public ThemeColor ActiveColor { get; set; } = new(1.0f, 1.0f, 1.0f);
 
+    public ThemeColor SecondaryColor { get; set; } = new(0.0f, 0.0f, 0.0f);
+
+    public float ActiveColorAlpha { get; set; } = 1.0f;
+
     public string ActivePaletteName { get; set; } = "Current Palette";
+
+    public PixelStudioColorPickerMode ColorPickerMode { get; set; } = PixelStudioColorPickerMode.RgbField;
 
     public bool PaletteLibraryVisible { get; set; }
 
@@ -45,11 +51,29 @@ public sealed class PixelStudioViewState
 
     public bool PaletteRenameActive { get; set; }
 
+    public bool PaletteRenameSelected { get; set; }
+
     public bool LayerRenameActive { get; set; }
+
+    public bool LayerRenameSelected { get; set; }
 
     public bool FrameRenameActive { get; set; }
 
+    public bool FrameRenameSelected { get; set; }
+
+    public bool HoverTooltipVisible { get; set; }
+
+    public string HoverTooltipTitle { get; set; } = string.Empty;
+
+    public string HoverTooltipBody { get; set; } = string.Empty;
+
+    public float HoverTooltipX { get; set; }
+
+    public float HoverTooltipY { get; set; }
+
     public bool HasSelection { get; set; }
+
+    public PixelStudioSelectionMode SelectionMode { get; set; } = PixelStudioSelectionMode.Box;
 
     public int SelectionX { get; set; }
 
@@ -59,6 +83,16 @@ public sealed class PixelStudioViewState
 
     public int SelectionHeight { get; set; }
 
+    public bool SelectionUsesMask { get; set; }
+
+    public IReadOnlySet<int> SelectionMaskIndices { get; set; } = new HashSet<int>();
+
+    public bool HasClipboardSelection { get; set; }
+
+    public int ClipboardWidth { get; set; }
+
+    public int ClipboardHeight { get; set; }
+
     public bool CanvasResizeDialogVisible { get; set; }
 
     public string CanvasResizeWidthBuffer { get; set; } = string.Empty;
@@ -67,7 +101,11 @@ public sealed class PixelStudioViewState
 
     public bool CanvasResizeWidthFieldActive { get; set; }
 
+    public bool CanvasResizeWidthSelected { get; set; }
+
     public bool CanvasResizeHeightFieldActive { get; set; }
+
+    public bool CanvasResizeHeightSelected { get; set; }
 
     public bool CanvasResizeWouldCrop { get; set; }
 
@@ -90,6 +128,16 @@ public sealed class PixelStudioViewState
     public float ToolSettingsPanelOffsetX { get; set; }
 
     public float ToolSettingsPanelOffsetY { get; set; }
+
+    public bool NavigatorVisible { get; set; }
+
+    public float NavigatorPanelOffsetX { get; set; }
+
+    public float NavigatorPanelOffsetY { get; set; }
+
+    public float NavigatorPanelWidth { get; set; }
+
+    public float NavigatorPanelHeight { get; set; }
 
     public int PaletteSwatchScrollRow { get; set; }
 
@@ -114,6 +162,8 @@ public sealed class PixelStudioViewState
     public IReadOnlyList<PixelStudioContextMenuItemView> ContextMenuItems { get; set; } = [];
 
     public IReadOnlyList<ThemeColor> Palette { get; set; } = [];
+
+    public IReadOnlyList<ThemeColor> RecentColors { get; set; } = [];
 
     public IReadOnlyList<ThemeColor?> CompositePixels { get; set; } = [];
 

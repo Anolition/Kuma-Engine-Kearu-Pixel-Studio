@@ -23,4 +23,8 @@ public sealed class EditorSettings
     public string? ActivePixelPaletteId { get; init; }
 
     public bool PromptForPaletteGenerationAfterImport { get; init; } = true;
+
+    public PixelStudioColorPickerMode PixelColorPickerMode { get; init; } = PixelStudioColorPickerMode.RgbField;
+
+    public IReadOnlyList<SavedEditorTheme> CustomThemes { get; init; } = [];
 }

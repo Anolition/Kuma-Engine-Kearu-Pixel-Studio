@@ -16,6 +16,8 @@ public interface IWindowScene : IDisposable
 
     void OnKeyDown(IKeyboard keyboard, Key key, int scancode);
 
+    void OnKeyUp(IKeyboard keyboard, Key key, int scancode);
+
     void OnKeyChar(IKeyboard keyboard, char character);
 
     void OnMouseDown(IMouse mouse, MouseButton button);

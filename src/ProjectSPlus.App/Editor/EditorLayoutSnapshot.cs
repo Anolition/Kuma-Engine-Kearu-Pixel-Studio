@@ -76,6 +76,16 @@ public sealed class EditorLayoutSnapshot
 
     public UiRect? PreferenceScrollThumbRect { get; init; }
 
+    public UiRect? ThemeStudioDialogRect { get; init; }
+
+    public UiRect? ThemeStudioNameFieldRect { get; init; }
+
+    public UiRect? ThemeStudioWheelRect { get; init; }
+
+    public UiRect? ThemeStudioWheelFieldRect { get; init; }
+
+    public UiRect? ThemeStudioPreviewRect { get; init; }
+
     public UiRect? LayoutInfoPanelRect { get; init; }
 
     public UiRect? ScratchInfoPanelRect { get; init; }
@@ -97,6 +107,10 @@ public sealed class EditorLayoutSnapshot
     public required IReadOnlyList<ActionRect<ProjectFormAction>> ProjectFormActions { get; init; }
 
     public required IReadOnlyList<ActionRect<EditorPreferenceAction>> PreferenceActions { get; init; }
+
+    public required IReadOnlyList<ActionRect<EditorThemeStudioAction>> ThemeStudioButtons { get; init; }
+
+    public required IReadOnlyList<ActionRect<EditorThemeColorRole>> ThemeStudioRoleButtons { get; init; }
 
     public required IReadOnlyList<ActionRect<EditorFolderPickerAction>> FolderPickerActions { get; init; }
 
