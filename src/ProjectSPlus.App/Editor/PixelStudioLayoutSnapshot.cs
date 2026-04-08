@@ -70,6 +70,8 @@ public sealed class PixelStudioLayoutSnapshot
 
     public UiRect? ContextMenuRect { get; init; }
 
+    public UiRect? CanvasResizeDialogRect { get; init; }
+
     public UiRect? BrushSizeSliderRect { get; init; }
 
     public UiRect? BrushSizeFillRect { get; init; }
@@ -99,6 +101,8 @@ public sealed class PixelStudioLayoutSnapshot
     public required IReadOnlyList<ActionRect<PixelStudioAction>> PaletteLibraryButtons { get; init; }
 
     public required IReadOnlyList<ActionRect<PixelStudioAction>> PalettePromptButtons { get; init; }
+
+    public required IReadOnlyList<ActionRect<PixelStudioAction>> CanvasResizeDialogButtons { get; init; }
 
     public required IReadOnlyList<ActionRect<PixelStudioContextMenuAction>> ContextMenuButtons { get; init; }
 
@@ -156,6 +160,7 @@ public sealed class PixelStudioLayoutSnapshot
             FrameRenameFieldRect = FrameRenameFieldRect,
             PalettePromptRect = PalettePromptRect,
             ContextMenuRect = ContextMenuRect,
+            CanvasResizeDialogRect = CanvasResizeDialogRect,
             BrushSizeSliderRect = BrushSizeSliderRect,
             BrushSizeFillRect = BrushSizeFillRect,
             BrushSizeKnobRect = BrushSizeKnobRect,
@@ -171,6 +176,7 @@ public sealed class PixelStudioLayoutSnapshot
             ToolSettingsButtons = ToolSettingsButtons,
             PaletteLibraryButtons = PaletteLibraryButtons,
             PalettePromptButtons = PalettePromptButtons,
+            CanvasResizeDialogButtons = CanvasResizeDialogButtons,
             ContextMenuButtons = ContextMenuButtons,
             LayerButtons = LayerButtons,
             TimelineButtons = TimelineButtons,
@@ -224,6 +230,7 @@ public sealed class PixelStudioLayoutSnapshot
             FrameRenameFieldRect = FrameRenameFieldRect,
             PalettePromptRect = PalettePromptRect,
             ContextMenuRect = ContextMenuRect,
+            CanvasResizeDialogRect = CanvasResizeDialogRect,
             BrushSizeSliderRect = OffsetRect(BrushSizeSliderRect, deltaX, deltaY),
             BrushSizeFillRect = OffsetRect(BrushSizeFillRect, deltaX, deltaY),
             BrushSizeKnobRect = OffsetRect(BrushSizeKnobRect, deltaX, deltaY),
@@ -239,6 +246,7 @@ public sealed class PixelStudioLayoutSnapshot
             ToolSettingsButtons = ToolSettingsButtons,
             PaletteLibraryButtons = PaletteLibraryButtons,
             PalettePromptButtons = PalettePromptButtons,
+            CanvasResizeDialogButtons = CanvasResizeDialogButtons,
             ContextMenuButtons = ContextMenuButtons,
             LayerButtons = LayerButtons,
             TimelineButtons = TimelineButtons,
@@ -263,5 +271,21 @@ public sealed class PixelStudioLayoutSnapshot
             rect.Value.Y + deltaY,
             rect.Value.Width,
             rect.Value.Height);
+    }
+
+    private static IReadOnlyList<ActionRect<PixelStudioAction>> OffsetActionRects(IReadOnlyList<ActionRect<PixelStudioAction>> rects, float deltaX, float deltaY)
+    {
+        if (rects.Count == 0)
+        {
+            return rects;
+        }
+
+        return rects
+            .Select(rect => new ActionRect<PixelStudioAction>
+            {
+                Action = rect.Action,
+                Rect = new UiRect(rect.Rect.X + deltaX, rect.Rect.Y + deltaY, rect.Rect.Width, rect.Rect.Height)
+            })
+            .ToList();
     }
 }

@@ -59,6 +59,22 @@ public sealed class PixelStudioViewState
 
     public int SelectionHeight { get; set; }
 
+    public bool CanvasResizeDialogVisible { get; set; }
+
+    public string CanvasResizeWidthBuffer { get; set; } = string.Empty;
+
+    public string CanvasResizeHeightBuffer { get; set; } = string.Empty;
+
+    public bool CanvasResizeWidthFieldActive { get; set; }
+
+    public bool CanvasResizeHeightFieldActive { get; set; }
+
+    public bool CanvasResizeWouldCrop { get; set; }
+
+    public string CanvasResizeWarningText { get; set; } = string.Empty;
+
+    public PixelStudioResizeAnchor CanvasResizeAnchor { get; set; } = PixelStudioResizeAnchor.TopLeft;
+
     public bool PromptForPaletteGenerationAfterImport { get; set; } = true;
 
     public float ToolsPanelPreferredWidth { get; set; } = 164;
@@ -102,6 +118,10 @@ public sealed class PixelStudioViewState
     public IReadOnlyList<ThemeColor?> CompositePixels { get; set; } = [];
 
     public IReadOnlyList<ThemeColor?> PreviewPixels { get; set; } = [];
+
+    public int CompositePixelsRevision { get; set; }
+
+    public int PreviewPixelsRevision { get; set; }
 
     public IReadOnlyList<PixelStudioSavedPaletteView> SavedPalettes { get; set; } = [];
 

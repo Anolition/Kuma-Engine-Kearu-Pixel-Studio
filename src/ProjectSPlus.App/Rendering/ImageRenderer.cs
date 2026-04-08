@@ -1,6 +1,8 @@
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
 using Silk.NET.OpenGL;
+using ProjectSPlus.App.Editor;
+using ProjectSPlus.Editor.Themes;
 
 namespace ProjectSPlus.App.Rendering;
 
@@ -11,6 +13,7 @@ public sealed unsafe class ImageRenderer : IDisposable
     private readonly uint _vao;
     private readonly uint _vbo;
     private readonly Dictionary<string, ImageTexture> _textureCache = [];
+    private readonly Dictionary<string, DynamicImageTexture> _dynamicTextureCache = [];
 
     private int _screenWidth;
     private int _screenHeight;
@@ -66,43 +69,27 @@ public sealed unsafe class ImageRenderer : IDisposable
 
         float drawX = x + ((width - drawWidth) * 0.5f);
         float drawY = y + ((height - drawHeight) * 0.5f);
+        DrawTexture(texture.Handle, drawX, drawY, drawWidth, drawHeight, texture.U0, texture.V0, texture.U1, texture.V1, clipRect: null);
+    }
 
-        float left = drawX;
-        float top = drawY;
-        float right = drawX + drawWidth;
-        float bottom = drawY + drawHeight;
-
-        float[] vertices =
-        [
-            left, top, texture.U0, texture.V0,
-            right, top, texture.U1, texture.V0,
-            right, bottom, texture.U1, texture.V1,
-            left, top, texture.U0, texture.V0,
-            right, bottom, texture.U1, texture.V1,
-            left, bottom, texture.U0, texture.V1
-        ];
-
-        _gl.Disable(EnableCap.ScissorTest);
-        _gl.Enable(EnableCap.Blend);
-        _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
-        _gl.UseProgram(_program);
-        _gl.BindVertexArray(_vao);
-        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
-        _gl.BufferSubData<float>(BufferTargetARB.ArrayBuffer, 0, vertices);
-
-        int screenSizeLocation = _gl.GetUniformLocation(_program, "uScreenSize");
-        if (screenSizeLocation >= 0)
+    public void DrawPixelBuffer(
+        string key,
+        IReadOnlyList<ThemeColor?> pixels,
+        int pixelWidth,
+        int pixelHeight,
+        int revision,
+        UiRect drawRect,
+        ThemeColor checkerLight,
+        ThemeColor checkerDark,
+        UiRect? clipRect = null)
+    {
+        if (string.IsNullOrWhiteSpace(key) || pixelWidth <= 0 || pixelHeight <= 0 || drawRect.Width <= 0 || drawRect.Height <= 0)
         {
-            _gl.Uniform2(screenSizeLocation, (float)_screenWidth, (float)_screenHeight);
+            return;
         }
 
-        _gl.ActiveTexture(TextureUnit.Texture0);
-        _gl.BindTexture(TextureTarget.Texture2D, texture.Handle);
-        int textureLocation = _gl.GetUniformLocation(_program, "uImageTexture");
-        _gl.Uniform1(textureLocation, 0);
-
-        _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
-        _gl.Disable(EnableCap.Blend);
+        DynamicImageTexture texture = GetOrCreateDynamicTexture(key, pixels, pixelWidth, pixelHeight, revision, checkerLight, checkerDark);
+        DrawTexture(texture.Handle, drawRect.X, drawRect.Y, drawRect.Width, drawRect.Height, 0f, 0f, 1f, 1f, clipRect);
     }
 
     public void Dispose()
@@ -113,6 +100,12 @@ public sealed unsafe class ImageRenderer : IDisposable
         }
 
         _textureCache.Clear();
+        foreach (DynamicImageTexture texture in _dynamicTextureCache.Values)
+        {
+            _gl.DeleteTexture(texture.Handle);
+        }
+
+        _dynamicTextureCache.Clear();
         _gl.DeleteBuffer(_vbo);
         _gl.DeleteVertexArray(_vao);
         _gl.DeleteProgram(_program);
@@ -157,6 +150,157 @@ public sealed unsafe class ImageRenderer : IDisposable
 
         _textureCache[filePath] = created;
         return created;
+    }
+
+    private DynamicImageTexture GetOrCreateDynamicTexture(
+        string key,
+        IReadOnlyList<ThemeColor?> pixels,
+        int width,
+        int height,
+        int revision,
+        ThemeColor checkerLight,
+        ThemeColor checkerDark)
+    {
+        if (!_dynamicTextureCache.TryGetValue(key, out DynamicImageTexture? cached)
+            || cached.Width != width
+            || cached.Height != height)
+        {
+            if (cached is not null)
+            {
+                _gl.DeleteTexture(cached.Handle);
+            }
+
+            uint handle = _gl.GenTexture();
+            cached = new DynamicImageTexture
+            {
+                Handle = handle,
+                Width = width,
+                Height = height,
+                Revision = -1
+            };
+            _dynamicTextureCache[key] = cached;
+            _gl.BindTexture(TextureTarget.Texture2D, handle);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Nearest);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Nearest);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
+            _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
+        }
+
+        if (cached.Revision != revision)
+        {
+            Rgba32[] buffer = new Rgba32[width * height];
+            for (int index = 0; index < buffer.Length; index++)
+            {
+                int x = index % width;
+                int y = index / width;
+                ThemeColor color = pixels[index] ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
+                buffer[index] = ToRgba32(color);
+            }
+
+            _gl.BindTexture(TextureTarget.Texture2D, cached.Handle);
+            _gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
+            _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba8, (uint)width, (uint)height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, ref buffer[0]);
+            cached.Revision = revision;
+        }
+
+        return cached;
+    }
+
+    private void DrawTexture(
+        uint textureHandle,
+        float x,
+        float y,
+        float width,
+        float height,
+        float u0,
+        float v0,
+        float u1,
+        float v1,
+        UiRect? clipRect)
+    {
+        if (textureHandle == 0 || width <= 0 || height <= 0)
+        {
+            return;
+        }
+
+        UiRect rect = new(x, y, width, height);
+        if (clipRect is not null)
+        {
+            UiRect? clipped = IntersectRect(rect, clipRect.Value);
+            if (clipped is null)
+            {
+                return;
+            }
+
+            float xRatio0 = (clipped.Value.X - rect.X) / Math.Max(rect.Width, 1f);
+            float yRatio0 = (clipped.Value.Y - rect.Y) / Math.Max(rect.Height, 1f);
+            float xRatio1 = ((clipped.Value.X + clipped.Value.Width) - rect.X) / Math.Max(rect.Width, 1f);
+            float yRatio1 = ((clipped.Value.Y + clipped.Value.Height) - rect.Y) / Math.Max(rect.Height, 1f);
+            rect = clipped.Value;
+            float uRange = u1 - u0;
+            float vRange = v1 - v0;
+            u0 += uRange * xRatio0;
+            v0 += vRange * yRatio0;
+            u1 = u0 + (uRange * Math.Max(xRatio1 - xRatio0, 0f));
+            v1 = v0 + (vRange * Math.Max(yRatio1 - yRatio0, 0f));
+        }
+
+        float[] vertices =
+        [
+            rect.X, rect.Y, u0, v0,
+            rect.X + rect.Width, rect.Y, u1, v0,
+            rect.X + rect.Width, rect.Y + rect.Height, u1, v1,
+            rect.X, rect.Y, u0, v0,
+            rect.X + rect.Width, rect.Y + rect.Height, u1, v1,
+            rect.X, rect.Y + rect.Height, u0, v1
+        ];
+
+        _gl.Disable(EnableCap.ScissorTest);
+        _gl.Enable(EnableCap.Blend);
+        _gl.BlendFunc(BlendingFactor.SrcAlpha, BlendingFactor.OneMinusSrcAlpha);
+        _gl.UseProgram(_program);
+        _gl.BindVertexArray(_vao);
+        _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
+        _gl.BufferSubData<float>(BufferTargetARB.ArrayBuffer, 0, vertices);
+
+        int screenSizeLocation = _gl.GetUniformLocation(_program, "uScreenSize");
+        if (screenSizeLocation >= 0)
+        {
+            _gl.Uniform2(screenSizeLocation, (float)_screenWidth, (float)_screenHeight);
+        }
+
+        _gl.ActiveTexture(TextureUnit.Texture0);
+        _gl.BindTexture(TextureTarget.Texture2D, textureHandle);
+        int textureLocation = _gl.GetUniformLocation(_program, "uImageTexture");
+        _gl.Uniform1(textureLocation, 0);
+
+        _gl.DrawArrays(PrimitiveType.Triangles, 0, 6);
+        _gl.Disable(EnableCap.Blend);
+    }
+
+    private static UiRect? IntersectRect(UiRect left, UiRect right)
+    {
+        float x = MathF.Max(left.X, right.X);
+        float y = MathF.Max(left.Y, right.Y);
+        float rightEdge = MathF.Min(left.X + left.Width, right.X + right.Width);
+        float bottomEdge = MathF.Min(left.Y + left.Height, right.Y + right.Height);
+        float width = rightEdge - x;
+        float height = bottomEdge - y;
+        if (width <= 0f || height <= 0f)
+        {
+            return null;
+        }
+
+        return new UiRect(x, y, width, height);
+    }
+
+    private static Rgba32 ToRgba32(ThemeColor color)
+    {
+        return new Rgba32(
+            (byte)Math.Clamp((int)MathF.Round(color.R * 255f), 0, 255),
+            (byte)Math.Clamp((int)MathF.Round(color.G * 255f), 0, 255),
+            (byte)Math.Clamp((int)MathF.Round(color.B * 255f), 0, 255),
+            (byte)Math.Clamp((int)MathF.Round(color.A * 255f), 0, 255));
     }
 
     private uint CreateProgram()
@@ -282,5 +426,16 @@ public sealed unsafe class ImageRenderer : IDisposable
         public required float U1 { get; init; }
 
         public required float V1 { get; init; }
+    }
+
+    private sealed class DynamicImageTexture
+    {
+        public required uint Handle { get; init; }
+
+        public required int Width { get; init; }
+
+        public required int Height { get; init; }
+
+        public int Revision { get; set; }
     }
 }

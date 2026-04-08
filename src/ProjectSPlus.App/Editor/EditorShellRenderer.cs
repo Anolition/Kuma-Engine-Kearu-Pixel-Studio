@@ -392,36 +392,55 @@ public sealed class EditorShellRenderer : IDisposable
 
         ThemeColor checkerLight = canvasCheckerLight;
         ThemeColor checkerDark = canvasCheckerDark;
+        ThemeColor gridColor = new(0.31f, 0.31f, 0.34f, 0.82f);
         DrawUiRectClipped(layout.CanvasViewportRect, canvasSurfaceColor, layout.CanvasClipRect);
 
         int canvasWidth = Math.Max(_uiState.PixelStudio.CanvasWidth, 1);
         int canvasHeight = Math.Max(_uiState.PixelStudio.CanvasHeight, 1);
         int cellSize = Math.Max(layout.CanvasCellSize, 1);
-        for (int y = 0; y < canvasHeight; y++)
+        IReadOnlyList<ThemeColor?> compositePixels = _uiState.PixelStudio.CompositePixels;
+        float clipLeft = layout.CanvasClipRect.X;
+        float clipTop = layout.CanvasClipRect.Y;
+        float clipRight = layout.CanvasClipRect.X + layout.CanvasClipRect.Width;
+        float clipBottom = layout.CanvasClipRect.Y + layout.CanvasClipRect.Height;
+        int visibleStartX = Math.Clamp((int)MathF.Floor((clipLeft - layout.CanvasViewportRect.X) / cellSize), 0, canvasWidth - 1);
+        int visibleEndX = Math.Clamp((int)MathF.Ceiling((clipRight - layout.CanvasViewportRect.X) / cellSize) - 1, 0, canvasWidth - 1);
+        int visibleStartY = Math.Clamp((int)MathF.Floor((clipTop - layout.CanvasViewportRect.Y) / cellSize), 0, canvasHeight - 1);
+        int visibleEndY = Math.Clamp((int)MathF.Ceiling((clipBottom - layout.CanvasViewportRect.Y) / cellSize) - 1, 0, canvasHeight - 1);
+
+        _imageRenderer.DrawPixelBuffer(
+            "pixelstudio-canvas",
+            compositePixels,
+            canvasWidth,
+            canvasHeight,
+            _uiState.PixelStudio.CompositePixelsRevision,
+            layout.CanvasViewportRect,
+            checkerLight,
+            checkerDark,
+            layout.CanvasClipRect);
+
+        if (_uiState.PixelStudio.ShowGrid)
         {
-            for (int x = 0; x < canvasWidth; x++)
+            int gridStride = cellSize switch
             {
-                int index = (y * canvasWidth) + x;
-                if (index >= _uiState.PixelStudio.CompositePixels.Count)
-                {
-                    break;
-                }
+                <= 2 => 8,
+                <= 3 => 4,
+                <= 5 => 2,
+                _ => 1
+            };
 
-                UiRect rect = new(
-                    layout.CanvasViewportRect.X + (x * cellSize),
-                    layout.CanvasViewportRect.Y + (y * cellSize),
-                    cellSize,
-                    cellSize);
-                ThemeColor cellColor = _uiState.PixelStudio.CompositePixels[index]
-                    ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
-                DrawUiRectClipped(rect, cellColor, layout.CanvasClipRect);
-
-                if (_uiState.PixelStudio.ShowGrid && rect.Width >= 10 && rect.Height >= 10)
-                {
-                    DrawUiRectClipped(new UiRect(rect.X + rect.Width - 1, rect.Y, 1, rect.Height), _theme.Divider, layout.CanvasClipRect);
-                    DrawUiRectClipped(new UiRect(rect.X, rect.Y + rect.Height - 1, rect.Width, 1), _theme.Divider, layout.CanvasClipRect);
-                }
-            }
+            DrawCanvasGrid(
+                layout.CanvasClipRect,
+                layout.CanvasViewportRect,
+                canvasWidth,
+                canvasHeight,
+                visibleStartX,
+                visibleEndX,
+                visibleStartY,
+                visibleEndY,
+                cellSize,
+                gridStride,
+                gridColor);
         }
 
         if (_uiState.PixelStudio.HasSelection)
@@ -521,6 +540,29 @@ public sealed class EditorShellRenderer : IDisposable
         if (layout.TimelinePanelRect.Height > 0)
         {
             DrawPixelPreview(layout.PlaybackPreviewRect, _uiState.PixelStudio.PreviewPixels, _uiState.PixelStudio.CanvasWidth, _uiState.PixelStudio.CanvasHeight);
+        }
+
+        if (layout.CanvasResizeDialogRect is not null)
+        {
+            UiRect dialogRect = layout.CanvasResizeDialogRect.Value;
+            ThemeColor dialogOuter = new(0.04f, 0.04f, 0.05f, 1.0f);
+            ThemeColor dialogInner = Blend(_theme.SidePanel, _theme.Workspace, 0.20f);
+            DrawRoundedUiRect(dialogRect, dialogOuter, 18f);
+            DrawRoundedUiRect(
+                new UiRect(dialogRect.X + 1, dialogRect.Y + 1, Math.Max(dialogRect.Width - 2, 0), Math.Max(dialogRect.Height - 2, 0)),
+                dialogInner,
+                17f);
+
+            foreach (ActionRect<PixelStudioAction> button in layout.CanvasResizeDialogButtons)
+            {
+                float radius = button.Action switch
+                {
+                    PixelStudioAction.ActivateCanvasResizeWidthField or PixelStudioAction.ActivateCanvasResizeHeightField => 12f,
+                    PixelStudioAction.ApplyCanvasResize or PixelStudioAction.CancelCanvasResize => 12f,
+                    _ => 10f
+                };
+                DrawRoundedUiRect(button.Rect, ResolvePixelActionColor(button.Action), radius);
+            }
         }
     }
 
@@ -1251,6 +1293,77 @@ public sealed class EditorShellRenderer : IDisposable
                 DrawCenteredTextClippedInRect($"{pixelStudio.Frames[frameIndex].Name}{suffix}", bodyFont, bodyText, layout.FrameRows[index].Rect, 10, 8);
             }
         }
+
+        if (layout.CanvasResizeDialogRect is not null)
+        {
+            UiRect dialogRect = layout.CanvasResizeDialogRect.Value;
+            UiRect dialogContentRect = new(dialogRect.X + 16, dialogRect.Y + 16, Math.Max(dialogRect.Width - 32, 0), Math.Max(dialogRect.Height - 32, 0));
+            DrawTextInRect("Custom Canvas Size", titleFont, bodyText, new UiRect(dialogContentRect.X, dialogRect.Y + 12, dialogContentRect.Width, 22), 0, 0);
+            Font resizeInfoFont = ResolveFont(Math.Max(_typography.StatusText.Size - 1f, 11f));
+
+            UiRect? widthFieldRect = layout.CanvasResizeDialogButtons
+                .FirstOrDefault(button => button.Action == PixelStudioAction.ActivateCanvasResizeWidthField)
+                ?.Rect;
+            UiRect? heightFieldRect = layout.CanvasResizeDialogButtons
+                .FirstOrDefault(button => button.Action == PixelStudioAction.ActivateCanvasResizeHeightField)
+                ?.Rect;
+            List<UiRect> anchorRects = layout.CanvasResizeDialogButtons
+                .Where(button => button.Action is PixelStudioAction.SetCanvasResizeAnchorTopLeft
+                    or PixelStudioAction.SetCanvasResizeAnchorTop
+                    or PixelStudioAction.SetCanvasResizeAnchorTopRight
+                    or PixelStudioAction.SetCanvasResizeAnchorLeft
+                    or PixelStudioAction.SetCanvasResizeAnchorCenter
+                    or PixelStudioAction.SetCanvasResizeAnchorRight
+                    or PixelStudioAction.SetCanvasResizeAnchorBottomLeft
+                    or PixelStudioAction.SetCanvasResizeAnchorBottom
+                    or PixelStudioAction.SetCanvasResizeAnchorBottomRight)
+                .Select(button => button.Rect)
+                .ToList();
+            float anchorLabelY = widthFieldRect is not null
+                ? widthFieldRect.Value.Y + widthFieldRect.Value.Height + 10f
+                : dialogRect.Y + 92f;
+            float warningY = anchorLabelY + 22f;
+
+            foreach (ActionRect<PixelStudioAction> button in layout.CanvasResizeDialogButtons)
+            {
+                switch (button.Action)
+                {
+                    case PixelStudioAction.ActivateCanvasResizeWidthField:
+                        DrawTextInRect("Width", resizeInfoFont, statusText, new UiRect(button.Rect.X + 10, button.Rect.Y + 4, button.Rect.Width - 20, 16), 0, 0);
+                        DrawCenteredTextInRect(pixelStudio.CanvasResizeWidthBuffer, bodyFont, bodyText, new UiRect(button.Rect.X, button.Rect.Y + 20, button.Rect.Width, button.Rect.Height - 20), 4, 0);
+                        break;
+                    case PixelStudioAction.ActivateCanvasResizeHeightField:
+                        DrawTextInRect("Height", resizeInfoFont, statusText, new UiRect(button.Rect.X + 10, button.Rect.Y + 4, button.Rect.Width - 20, 16), 0, 0);
+                        DrawCenteredTextInRect(pixelStudio.CanvasResizeHeightBuffer, bodyFont, bodyText, new UiRect(button.Rect.X, button.Rect.Y + 20, button.Rect.Width, button.Rect.Height - 20), 4, 0);
+                        break;
+                    case PixelStudioAction.ApplyCanvasResize:
+                    case PixelStudioAction.CancelCanvasResize:
+                        DrawCenteredTextInRect(GetPixelStudioActionLabel(button.Action), bodyFont, bodyText, button.Rect, 6, 6);
+                        break;
+                    case PixelStudioAction.SetCanvasResizeAnchorTopLeft:
+                    case PixelStudioAction.SetCanvasResizeAnchorTop:
+                    case PixelStudioAction.SetCanvasResizeAnchorTopRight:
+                    case PixelStudioAction.SetCanvasResizeAnchorLeft:
+                    case PixelStudioAction.SetCanvasResizeAnchorCenter:
+                    case PixelStudioAction.SetCanvasResizeAnchorRight:
+                    case PixelStudioAction.SetCanvasResizeAnchorBottomLeft:
+                    case PixelStudioAction.SetCanvasResizeAnchorBottom:
+                    case PixelStudioAction.SetCanvasResizeAnchorBottomRight:
+                        DrawCenteredTextInRect(GetPixelStudioActionLabel(button.Action), bodyFont, bodyText, button.Rect, 4, 4);
+                        break;
+                }
+            }
+
+            if (anchorRects.Count > 0)
+            {
+                float gridTop = anchorRects.Min(rect => rect.Y);
+                anchorLabelY = Math.Min(anchorLabelY, gridTop - 40f);
+                warningY = anchorLabelY + 24f;
+            }
+
+            DrawTextInRect("Anchor", titleFont, bodyText, new UiRect(dialogContentRect.X, anchorLabelY, dialogContentRect.Width, 20), 0, 0);
+            DrawTextInRect(pixelStudio.CanvasResizeWarningText, resizeInfoFont, statusText, new UiRect(dialogContentRect.X, warningY, dialogContentRect.Width, 16), 0, 0);
+        }
     }
 
     private static bool IsCollapsedPanel(UiRect rect)
@@ -1756,10 +1869,26 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.LoadProjectDocument => "Open",
             PixelStudioAction.LoadDemoDocument => "Demo",
             PixelStudioAction.ImportImage => "Import",
+            PixelStudioAction.OpenCanvasResizeDialog => "Custom",
             PixelStudioAction.ResizeCanvas16 => "16px",
             PixelStudioAction.ResizeCanvas32 => "32px",
             PixelStudioAction.ResizeCanvas64 => "64px",
             PixelStudioAction.ResizeCanvas128 => "128px",
+            PixelStudioAction.ResizeCanvas256 => "256px",
+            PixelStudioAction.ResizeCanvas512 => "512px",
+            PixelStudioAction.ActivateCanvasResizeWidthField => "Width",
+            PixelStudioAction.ActivateCanvasResizeHeightField => "Height",
+            PixelStudioAction.SetCanvasResizeAnchorTopLeft => "TL",
+            PixelStudioAction.SetCanvasResizeAnchorTop => "T",
+            PixelStudioAction.SetCanvasResizeAnchorTopRight => "TR",
+            PixelStudioAction.SetCanvasResizeAnchorLeft => "L",
+            PixelStudioAction.SetCanvasResizeAnchorCenter => "C",
+            PixelStudioAction.SetCanvasResizeAnchorRight => "R",
+            PixelStudioAction.SetCanvasResizeAnchorBottomLeft => "BL",
+            PixelStudioAction.SetCanvasResizeAnchorBottom => "B",
+            PixelStudioAction.SetCanvasResizeAnchorBottomRight => "BR",
+            PixelStudioAction.ApplyCanvasResize => "Apply",
+            PixelStudioAction.CancelCanvasResize => "Cancel",
             PixelStudioAction.ZoomOut => "-",
             PixelStudioAction.ZoomIn => "+",
             PixelStudioAction.ToggleGrid => "Grid",
@@ -1823,6 +1952,19 @@ public sealed class EditorShellRenderer : IDisposable
     {
         return action switch
         {
+            PixelStudioAction.OpenCanvasResizeDialog when _uiState.PixelStudio.CanvasResizeDialogVisible => _theme.TabActive,
+            PixelStudioAction.ActivateCanvasResizeWidthField when _uiState.PixelStudio.CanvasResizeWidthFieldActive => _theme.TabActive,
+            PixelStudioAction.ActivateCanvasResizeHeightField when _uiState.PixelStudio.CanvasResizeHeightFieldActive => _theme.TabActive,
+            PixelStudioAction.SetCanvasResizeAnchorTopLeft when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.TopLeft => _theme.TabActive,
+            PixelStudioAction.SetCanvasResizeAnchorTop when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.Top => _theme.TabActive,
+            PixelStudioAction.SetCanvasResizeAnchorTopRight when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.TopRight => _theme.TabActive,
+            PixelStudioAction.SetCanvasResizeAnchorLeft when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.Left => _theme.TabActive,
+            PixelStudioAction.SetCanvasResizeAnchorCenter when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.Center => _theme.TabActive,
+            PixelStudioAction.SetCanvasResizeAnchorRight when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.Right => _theme.TabActive,
+            PixelStudioAction.SetCanvasResizeAnchorBottomLeft when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.BottomLeft => _theme.TabActive,
+            PixelStudioAction.SetCanvasResizeAnchorBottom when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.Bottom => _theme.TabActive,
+            PixelStudioAction.SetCanvasResizeAnchorBottomRight when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.BottomRight => _theme.TabActive,
+            PixelStudioAction.ApplyCanvasResize => Blend(_theme.Accent, _theme.TabActive, 0.44f),
             PixelStudioAction.ToggleGrid when _uiState.PixelStudio.ShowGrid => _theme.TabActive,
             PixelStudioAction.TogglePlayback when _uiState.PixelStudio.IsPlaying => _theme.TabActive,
             PixelStudioAction.DeleteLayer when _uiState.PixelStudio.Layers.Count <= 1 => _theme.Divider,
@@ -1831,10 +1973,143 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.ResizeCanvas32 when _uiState.PixelStudio.CanvasWidth == 32 && _uiState.PixelStudio.CanvasHeight == 32 => _theme.TabActive,
             PixelStudioAction.ResizeCanvas64 when _uiState.PixelStudio.CanvasWidth == 64 && _uiState.PixelStudio.CanvasHeight == 64 => _theme.TabActive,
             PixelStudioAction.ResizeCanvas128 when _uiState.PixelStudio.CanvasWidth == 128 && _uiState.PixelStudio.CanvasHeight == 128 => _theme.TabActive,
+            PixelStudioAction.ResizeCanvas256 when _uiState.PixelStudio.CanvasWidth == 256 && _uiState.PixelStudio.CanvasHeight == 256 => _theme.TabActive,
+            PixelStudioAction.ResizeCanvas512 when _uiState.PixelStudio.CanvasWidth == 512 && _uiState.PixelStudio.CanvasHeight == 512 => _theme.TabActive,
             PixelStudioAction.ToggleTimelinePanel when _uiState.PixelStudio.TimelineVisible => _theme.TabActive,
             PixelStudioAction.TogglePaletteLibrary when _uiState.PixelStudio.PaletteLibraryVisible => _theme.TabActive,
             _ => _theme.TabInactive
         };
+    }
+
+    private void DrawCanvasPixelsDetailed(
+        UiRect clipRect,
+        UiRect viewportRect,
+        IReadOnlyList<ThemeColor?> pixels,
+        int canvasWidth,
+        int visibleStartX,
+        int visibleEndX,
+        int visibleStartY,
+        int visibleEndY,
+        int cellSize,
+        ThemeColor checkerLight,
+        ThemeColor checkerDark)
+    {
+        for (int y = visibleStartY; y <= visibleEndY; y++)
+        {
+            int rowOffset = y * canvasWidth;
+            for (int x = visibleStartX; x <= visibleEndX; x++)
+            {
+                int index = rowOffset + x;
+                if (index < 0 || index >= pixels.Count)
+                {
+                    continue;
+                }
+
+                UiRect rect = new(
+                    viewportRect.X + (x * cellSize),
+                    viewportRect.Y + (y * cellSize),
+                    cellSize,
+                    cellSize);
+                ThemeColor cellColor = pixels[index] ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
+                DrawUiRectClipped(rect, cellColor, clipRect);
+            }
+        }
+    }
+
+    private void DrawCanvasPixelsSampled(
+        UiRect clipRect,
+        UiRect viewportRect,
+        IReadOnlyList<ThemeColor?> pixels,
+        int canvasWidth,
+        int canvasHeight,
+        int visibleStartX,
+        int visibleEndX,
+        int visibleStartY,
+        int visibleEndY,
+        ThemeColor checkerLight,
+        ThemeColor checkerDark)
+    {
+        int visibleColumns = Math.Max((visibleEndX - visibleStartX) + 1, 1);
+        int visibleRows = Math.Max((visibleEndY - visibleStartY) + 1, 1);
+        float visibleLeft = Math.Max(viewportRect.X + (visibleStartX * Math.Max(viewportRect.Width / Math.Max(canvasWidth, 1), 1f)), clipRect.X);
+        float visibleTop = Math.Max(viewportRect.Y + (visibleStartY * Math.Max(viewportRect.Height / Math.Max(canvasHeight, 1), 1f)), clipRect.Y);
+        float visibleRight = Math.Min(viewportRect.X + ((visibleEndX + 1) * Math.Max(viewportRect.Width / Math.Max(canvasWidth, 1), 1f)), clipRect.X + clipRect.Width);
+        float visibleBottom = Math.Min(viewportRect.Y + ((visibleEndY + 1) * Math.Max(viewportRect.Height / Math.Max(canvasHeight, 1), 1f)), clipRect.Y + clipRect.Height);
+        float visibleWidth = Math.Max(visibleRight - visibleLeft, 1f);
+        float visibleHeight = Math.Max(visibleBottom - visibleTop, 1f);
+        int sampleColumns = Math.Max(Math.Min(Math.Min(visibleColumns, (int)MathF.Ceiling(visibleWidth / 3f)), 144), 1);
+        int sampleRows = Math.Max(Math.Min(Math.Min(visibleRows, (int)MathF.Ceiling(visibleHeight / 3f)), 144), 1);
+        float sampleWidth = visibleWidth / sampleColumns;
+        float sampleHeight = visibleHeight / sampleRows;
+
+        for (int row = 0; row < sampleRows; row++)
+        {
+            int sourceY = visibleStartY + Math.Clamp((int)MathF.Floor((row + 0.5f) * visibleRows / sampleRows), 0, visibleRows - 1);
+            for (int column = 0; column < sampleColumns; column++)
+            {
+                int sourceX = visibleStartX + Math.Clamp((int)MathF.Floor((column + 0.5f) * visibleColumns / sampleColumns), 0, visibleColumns - 1);
+                int index = (sourceY * canvasWidth) + sourceX;
+                if (index < 0 || index >= pixels.Count)
+                {
+                    continue;
+                }
+
+                ThemeColor color = pixels[index] ?? (((sourceX + sourceY) % 2 == 0) ? checkerLight : checkerDark);
+                DrawUiRectClipped(
+                    new UiRect(
+                        visibleLeft + (column * sampleWidth),
+                        visibleTop + (row * sampleHeight),
+                        sampleWidth,
+                        sampleHeight),
+                    color,
+                    clipRect);
+            }
+        }
+    }
+
+    private void DrawCanvasGrid(
+        UiRect clipRect,
+        UiRect viewportRect,
+        int canvasWidth,
+        int canvasHeight,
+        int visibleStartX,
+        int visibleEndX,
+        int visibleStartY,
+        int visibleEndY,
+        int cellSize,
+        int gridStride,
+        ThemeColor gridColor)
+    {
+        if (gridStride <= 0 || cellSize <= 0)
+        {
+            return;
+        }
+
+        int firstVerticalIndex = visibleStartX;
+        int verticalRemainder = firstVerticalIndex % gridStride;
+        if (verticalRemainder != 0)
+        {
+            firstVerticalIndex += gridStride - verticalRemainder;
+        }
+
+        int firstHorizontalIndex = visibleStartY;
+        int horizontalRemainder = firstHorizontalIndex % gridStride;
+        if (horizontalRemainder != 0)
+        {
+            firstHorizontalIndex += gridStride - horizontalRemainder;
+        }
+
+        for (int x = firstVerticalIndex; x <= Math.Min(visibleEndX + 1, canvasWidth); x += gridStride)
+        {
+            float lineX = viewportRect.X + (x * cellSize);
+            DrawUiRectClipped(new UiRect(lineX, viewportRect.Y, 1, viewportRect.Height), gridColor, clipRect);
+        }
+
+        for (int y = firstHorizontalIndex; y <= Math.Min(visibleEndY + 1, canvasHeight); y += gridStride)
+        {
+            float lineY = viewportRect.Y + (y * cellSize);
+            DrawUiRectClipped(new UiRect(viewportRect.X, lineY, viewportRect.Width, 1), gridColor, clipRect);
+        }
     }
 
     private void DrawPixelPreview(UiRect rect, IReadOnlyList<ThemeColor?> pixels, int canvasWidth, int canvasHeight)
@@ -1856,12 +2131,40 @@ public sealed class EditorShellRenderer : IDisposable
         float startX = paddedRect.X + Math.Max((paddedRect.Width - viewportWidth) * 0.5f, 0);
         float startY = paddedRect.Y + Math.Max((paddedRect.Height - viewportHeight) * 0.5f, 0);
 
-        for (int index = 0; index < pixels.Count; index++)
+        if (cellSize >= 1f)
         {
-            int x = index % canvasWidth;
-            int y = index / canvasWidth;
-            ThemeColor color = pixels[index] ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
-            DrawUiRectClipped(new UiRect(startX + (x * cellSize), startY + (y * cellSize), cellSize, cellSize), color, paddedRect);
+            for (int index = 0; index < pixels.Count; index++)
+            {
+                int x = index % canvasWidth;
+                int y = index / canvasWidth;
+                ThemeColor color = pixels[index] ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
+                DrawUiRectClipped(new UiRect(startX + (x * cellSize), startY + (y * cellSize), cellSize, cellSize), color, paddedRect);
+            }
+
+            return;
+        }
+
+        int sampleColumns = Math.Max(Math.Min((int)MathF.Ceiling(paddedRect.Width), 96), 1);
+        int sampleRows = Math.Max(Math.Min((int)MathF.Ceiling(paddedRect.Height), 96), 1);
+        float sampleWidth = paddedRect.Width / sampleColumns;
+        float sampleHeight = paddedRect.Height / sampleRows;
+        for (int row = 0; row < sampleRows; row++)
+        {
+            int sourceY = Math.Clamp((int)MathF.Floor((row + 0.5f) * canvasHeight / sampleRows), 0, canvasHeight - 1);
+            for (int column = 0; column < sampleColumns; column++)
+            {
+                int sourceX = Math.Clamp((int)MathF.Floor((column + 0.5f) * canvasWidth / sampleColumns), 0, canvasWidth - 1);
+                int index = (sourceY * canvasWidth) + sourceX;
+                ThemeColor color = pixels[index] ?? (((sourceX + sourceY) % 2 == 0) ? checkerLight : checkerDark);
+                DrawUiRectClipped(
+                    new UiRect(
+                        paddedRect.X + (column * sampleWidth),
+                        paddedRect.Y + (row * sampleHeight),
+                        sampleWidth,
+                        sampleHeight),
+                    color,
+                    paddedRect);
+            }
         }
     }
 
