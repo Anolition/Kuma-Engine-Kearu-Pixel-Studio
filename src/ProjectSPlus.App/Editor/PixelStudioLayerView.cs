@@ -8,5 +8,11 @@ public sealed class PixelStudioLayerView
 
     public required bool IsLocked { get; init; }
 
+    public required bool IsAlphaLocked { get; init; }
+
+    public required bool IsSharedAcrossFrames { get; init; }
+
+    public required float Opacity { get; init; }
+
     public required bool IsActive { get; init; }
 }

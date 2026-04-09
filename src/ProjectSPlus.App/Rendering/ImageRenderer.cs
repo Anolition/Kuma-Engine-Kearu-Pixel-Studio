@@ -186,21 +186,27 @@ public sealed unsafe class ImageRenderer : IDisposable
             _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
         }
 
-        if (cached.Revision != revision)
+        int expectedPixelCount = width * height;
+        int effectiveRevision = pixels.Count == expectedPixelCount
+            ? revision
+            : HashCode.Combine(revision, pixels.Count, width, height);
+
+        if (cached.Revision != effectiveRevision)
         {
             Rgba32[] buffer = new Rgba32[width * height];
             for (int index = 0; index < buffer.Length; index++)
             {
                 int x = index % width;
                 int y = index / width;
-                ThemeColor color = pixels[index] ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
+                ThemeColor? sourcePixel = index < pixels.Count ? pixels[index] : null;
+                ThemeColor color = sourcePixel ?? (((x + y) % 2 == 0) ? checkerLight : checkerDark);
                 buffer[index] = ToRgba32(color);
             }
 
             _gl.BindTexture(TextureTarget.Texture2D, cached.Handle);
             _gl.PixelStore(PixelStoreParameter.UnpackAlignment, 1);
             _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba8, (uint)width, (uint)height, 0, PixelFormat.Rgba, PixelType.UnsignedByte, ref buffer[0]);
-            cached.Revision = revision;
+            cached.Revision = effectiveRevision;
         }
 
         return cached;

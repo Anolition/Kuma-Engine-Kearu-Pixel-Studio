@@ -1,3 +1,4 @@
+using ProjectSPlus.App;
 using ProjectSPlus.Core.Configuration;
 using ProjectSPlus.Editor.Shell;
 using ProjectSPlus.App.Editor;
@@ -6,10 +7,49 @@ using ProjectSPlus.Runtime.Application;
 string settingsPath = Path.Combine(AppContext.BaseDirectory, "settings", "appsettings.json");
 string logPath = Path.Combine(AppContext.BaseDirectory, "startup-error.log");
 
+AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
+{
+    Exception exception = eventArgs.ExceptionObject as Exception
+        ?? new InvalidOperationException($"Unhandled non-exception crash object: {eventArgs.ExceptionObject}");
+    PixelStudioRecoveryCoordinator.TryFlushPendingRecovery();
+    CrashReporter.Handle(exception, logPath);
+};
+
+TaskScheduler.UnobservedTaskException += (_, eventArgs) =>
+{
+    PixelStudioRecoveryCoordinator.TryFlushPendingRecovery();
+    CrashReporter.Handle(eventArgs.Exception, logPath);
+    eventArgs.SetObserved();
+};
+
 try
 {
+    if (args.Contains("--test-crash-reporter", StringComparer.OrdinalIgnoreCase))
+    {
+        throw new InvalidOperationException("Intentional crash reporter test triggered by launch argument.");
+    }
+
     JsonSettingsStore settingsStore = new();
     AppSettings settings = settingsStore.LoadOrCreate(settingsPath);
+    NotificationSoundPlayer.SoundMode = settings.Editor.NotificationSoundMode;
+    PixelStudioRecoverySnapshot? recoverySnapshot = null;
+    bool preserveDeferredRecovery = false;
+    if (PixelStudioRecoveryManager.TryLoad(out PixelStudioRecoverySnapshot? pendingRecovery) && pendingRecovery is not null)
+    {
+        switch (PixelStudioRecoveryPrompt.Show(pendingRecovery))
+        {
+            case PixelStudioRecoveryPromptResult.Restore:
+                recoverySnapshot = pendingRecovery;
+                break;
+            case PixelStudioRecoveryPromptResult.Discard:
+                PixelStudioRecoveryManager.Clear();
+                break;
+            case PixelStudioRecoveryPromptResult.Defer:
+                preserveDeferredRecovery = true;
+                break;
+        }
+    }
+
     EditorShell shell = EditorShell.CreateDefault();
     EditorWindowScene scene = new(
         shell,
@@ -25,7 +65,10 @@ try
         settings.Editor.ActivePixelPaletteId,
         settings.Editor.PromptForPaletteGenerationAfterImport,
         settings.Editor.PixelColorPickerMode,
-        settings.Editor.CustomThemes);
+        settings.Editor.NotificationSoundMode,
+        settings.Editor.CustomThemes,
+        recoverySnapshot,
+        preserveDeferredRecovery);
 
     IApplicationHost host = new WindowHost();
 
@@ -33,6 +76,7 @@ try
 }
 catch (Exception ex)
 {
-    File.WriteAllText(logPath, ex.ToString());
-    throw;
+    PixelStudioRecoveryCoordinator.TryFlushPendingRecovery();
+    CrashReporter.Handle(ex, logPath);
+    Environment.ExitCode = 1;
 }

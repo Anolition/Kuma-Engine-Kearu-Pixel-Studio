@@ -1,6 +1,4 @@
 using System.Diagnostics;
-using System.Runtime.InteropServices;
-using System.Text;
 using ProjectSPlus.Editor.Themes;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.PixelFormats;
@@ -21,8 +19,8 @@ public static class ImageImporter
 
     public static string? ShowImportDialog(string initialDirectory)
     {
-        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-            ? ShowWindowsImportDialog(initialDirectory)
+        return OperatingSystem.IsWindows()
+            ? WindowsNativeFileDialog.ShowOpenFileDialog(initialDirectory, "Image Files (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg")
             : ShowLinuxImportDialog(initialDirectory);
     }
 
@@ -163,28 +161,6 @@ public static class ImageImporter
         return bestIndex;
     }
 
-    private static string? ShowWindowsImportDialog(string initialDirectory)
-    {
-        string directory = Directory.Exists(initialDirectory)
-            ? initialDirectory
-            : Environment.GetFolderPath(Environment.SpecialFolder.MyPictures);
-
-        string escapedDirectory = directory.Replace("'", "''", StringComparison.Ordinal);
-        string script =
-            "$ErrorActionPreference='Stop'; " +
-            "Add-Type -AssemblyName System.Windows.Forms; " +
-            "Add-Type -TypeDefinition 'using System.Runtime.InteropServices; public static class NativeMethods { [DllImport(\"user32.dll\")] public static extern bool SetProcessDPIAware(); }'; " +
-            "[NativeMethods]::SetProcessDPIAware() | Out-Null; " +
-            "[System.Windows.Forms.Application]::EnableVisualStyles(); " +
-            "$dialog = New-Object System.Windows.Forms.OpenFileDialog; " +
-            "$dialog.Filter = 'Image Files (*.png;*.jpg;*.jpeg)|*.png;*.jpg;*.jpeg'; " +
-            "$dialog.Multiselect = $false; " +
-            $"$dialog.InitialDirectory = '{escapedDirectory}'; " +
-            "if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Write($dialog.FileName) }";
-
-        return RunWindowsPowerShellDialog(script);
-    }
-
     private static string? ShowLinuxImportDialog(string initialDirectory)
     {
         string directory = Directory.Exists(initialDirectory)
@@ -208,12 +184,6 @@ public static class ImageImporter
     {
         selectedPath = RunDialogProcess(command, arguments);
         return !string.IsNullOrWhiteSpace(selectedPath);
-    }
-
-    private static string? RunWindowsPowerShellDialog(string script)
-    {
-        string encodedScript = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-        return RunDialogProcess("powershell", $"-NoProfile -STA -EncodedCommand {encodedScript}");
     }
 
     private static string? RunDialogProcess(string fileName, string arguments)

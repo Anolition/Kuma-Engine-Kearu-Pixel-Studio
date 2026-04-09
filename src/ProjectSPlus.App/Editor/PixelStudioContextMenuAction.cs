@@ -23,11 +23,17 @@ public enum PixelStudioContextMenuAction
     DuplicateLayer,
     MoveLayerUp,
     MoveLayerDown,
+    ToggleLayerSharedAcrossFrames,
+    ToggleLayerAlphaLock,
     ToggleLayerLock,
     DeleteLayer,
     RenameFrame,
+    CopyFrame,
+    PasteFrame,
     DuplicateFrame,
     MoveFrameLeft,
     MoveFrameRight,
+    DecreaseFrameDuration,
+    IncreaseFrameDuration,
     DeleteFrame
 }

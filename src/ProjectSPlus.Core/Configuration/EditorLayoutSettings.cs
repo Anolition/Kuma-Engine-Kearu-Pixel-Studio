@@ -10,7 +10,7 @@ public sealed class EditorLayoutSettings
 
     public bool RightPanelCollapsed { get; init; }
 
-    public float PixelToolsPanelWidth { get; init; } = 164f;
+    public float PixelToolsPanelWidth { get; init; } = 40f;
 
     public float PixelSidebarWidth { get; init; } = 360f;
 
@@ -36,6 +36,16 @@ public sealed class EditorLayoutSettings
 
     public float? PixelNavigatorHeight { get; init; }
 
+    public bool PixelAnimationPreviewVisible { get; init; } = true;
+
+    public float? PixelAnimationPreviewOffsetX { get; init; }
+
+    public float? PixelAnimationPreviewOffsetY { get; init; }
+
+    public float? PixelAnimationPreviewWidth { get; init; }
+
+    public float? PixelAnimationPreviewHeight { get; init; }
+
     public EditorLayoutSettings Normalize()
     {
         return new EditorLayoutSettings
@@ -44,7 +54,7 @@ public sealed class EditorLayoutSettings
             RightPanelWidth = Math.Clamp(RightPanelWidth, 240f, 560f),
             LeftPanelCollapsed = LeftPanelCollapsed,
             RightPanelCollapsed = RightPanelCollapsed,
-            PixelToolsPanelWidth = Math.Clamp(PixelToolsPanelWidth, 132f, 280f),
+            PixelToolsPanelWidth = Math.Clamp(PixelToolsPanelWidth, 38f, 120f),
             PixelSidebarWidth = Math.Clamp(PixelSidebarWidth, 248f, 440f),
             PixelToolsPanelCollapsed = PixelToolsPanelCollapsed,
             PixelSidebarCollapsed = PixelSidebarCollapsed,
@@ -56,7 +66,12 @@ public sealed class EditorLayoutSettings
             PixelNavigatorOffsetX = PixelNavigatorOffsetX,
             PixelNavigatorOffsetY = PixelNavigatorOffsetY,
             PixelNavigatorWidth = PixelNavigatorWidth,
-            PixelNavigatorHeight = PixelNavigatorHeight
+            PixelNavigatorHeight = PixelNavigatorHeight,
+            PixelAnimationPreviewVisible = PixelAnimationPreviewVisible,
+            PixelAnimationPreviewOffsetX = PixelAnimationPreviewOffsetX,
+            PixelAnimationPreviewOffsetY = PixelAnimationPreviewOffsetY,
+            PixelAnimationPreviewWidth = PixelAnimationPreviewWidth,
+            PixelAnimationPreviewHeight = PixelAnimationPreviewHeight
         };
     }
 }

@@ -22,6 +22,10 @@ public sealed class PixelStudioProjectDocument
 
     public int FramesPerSecond { get; init; } = 8;
 
+    public bool ShowOnionSkin { get; init; } = true;
+
+    public float OnionOpacity { get; init; } = 0.42f;
+
     public bool IsPlaying { get; init; }
 
     public int PreviewFrameIndex { get; init; }
@@ -43,6 +47,8 @@ public sealed class PixelStudioProjectFrameDocument
 {
     public string Name { get; init; } = "Frame";
 
+    public int DurationMilliseconds { get; init; } = 125;
+
     public IReadOnlyList<PixelStudioProjectLayerDocument> Layers { get; init; } = [];
 }
 
@@ -53,6 +59,12 @@ public sealed class PixelStudioProjectLayerDocument
     public bool IsVisible { get; init; } = true;
 
     public bool IsLocked { get; init; }
+
+    public bool IsAlphaLocked { get; init; }
+
+    public bool IsSharedAcrossFrames { get; init; }
+
+    public float Opacity { get; init; } = 1f;
 
     public IReadOnlyList<int> Pixels { get; init; } = [];
 }

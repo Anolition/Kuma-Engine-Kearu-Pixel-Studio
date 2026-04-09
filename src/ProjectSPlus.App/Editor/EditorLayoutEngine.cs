@@ -416,7 +416,10 @@ public static partial class EditorLayoutEngine
             "Help" =>
             [
                 new EditorMenuEntry { Label = "Home", Action = EditorMenuAction.OpenHome },
-                new EditorMenuEntry { Label = "Projects", Action = EditorMenuAction.OpenProjects }
+                new EditorMenuEntry { Label = "Projects", Action = EditorMenuAction.OpenProjects },
+                new EditorMenuEntry { Label = "Test Warning Sound", Action = EditorMenuAction.TestWarningSound },
+                new EditorMenuEntry { Label = "Test Crash Sound", Action = EditorMenuAction.TestCrashSound },
+                new EditorMenuEntry { Label = "Trigger Crash Reporter", Action = EditorMenuAction.TriggerCrashReporterTest }
             ],
             _ => []
         };
@@ -966,7 +969,7 @@ public static partial class EditorLayoutEngine
         float availableContentWidth = Math.Max(panelAreaWidth - preferredGapWidth, 180);
         bool timelineVisible = pixelStudio.TimelineVisible;
         float resolvedToolSettingsWidth = toolSettingsPanelWidth;
-        float preferredToolsWidth = pixelStudio.ToolsPanelCollapsed ? CollapsedPanelWidth : Math.Max(pixelStudio.ToolsPanelPreferredWidth, 164);
+        float preferredToolsWidth = pixelStudio.ToolsPanelCollapsed ? CollapsedPanelWidth : Math.Max(pixelStudio.ToolsPanelPreferredWidth, 84);
         float preferredSidebarWidth = pixelStudio.SidebarCollapsed ? CollapsedPanelWidth : Math.Max(pixelStudio.SidebarPreferredWidth, 320);
         IReadOnlyList<AdaptivePanelAllocation> pixelPanelAllocations = AllocateAdaptiveWidths(
             availableContentWidth,
@@ -1123,6 +1126,10 @@ public static partial class EditorLayoutEngine
                 resolvedNavigatorHeight));
             navigatorPreviewRect = GetNavigatorPreviewRect(navigatorPanelRect.Value);
         }
+
+        UiRect? animationPreviewPanelRect = null;
+        UiRect? animationPreviewContentRect = null;
+
         UiRect canvasViewportRegion = new(
             canvasBodyRect.X,
             canvasBodyRect.Y,
@@ -1140,16 +1147,30 @@ public static partial class EditorLayoutEngine
 
         UiRect timelineHeaderRect = GetPanelHeaderRect(timelineRect);
         UiRect timelineBodyRect = GetPanelBodyRect(timelineRect);
-        UiRect timelinePreviewRect = new(
-            timelineBodyRect.X + Math.Max(timelineBodyRect.Width - 116, 0),
-            timelineBodyRect.Y + 6,
-            Math.Min(110, Math.Max(timelineBodyRect.Width, 110)),
-            110);
-        UiRect timelineControlsRect = new(
-            timelineBodyRect.X,
-            timelineBodyRect.Y + 6,
-            Math.Max(timelinePreviewRect.X - timelineBodyRect.X - 12, 120),
-            30);
+        bool expandedPlaybackPreview = false;
+        float timelineControlsHeight = 68f;
+        UiRect timelinePreviewRect = expandedPlaybackPreview
+            ? new UiRect(
+                timelineBodyRect.X,
+                timelineBodyRect.Y + timelineControlsHeight + 16f,
+                Math.Max(timelineBodyRect.Width, 120f),
+                Math.Max(timelineBodyRect.Height - timelineControlsHeight - 22f, 84f))
+            : new UiRect(
+                timelineBodyRect.X + Math.Max(timelineBodyRect.Width - 126, 0),
+                timelineBodyRect.Y + 6,
+                Math.Min(120, Math.Max(timelineBodyRect.Width, 120)),
+                110);
+        UiRect timelineControlsRect = expandedPlaybackPreview
+            ? new UiRect(
+                timelineBodyRect.X,
+                timelineBodyRect.Y + 6,
+                Math.Max(timelineBodyRect.Width, 120f),
+                timelineControlsHeight)
+            : new UiRect(
+                timelineBodyRect.X,
+                timelineBodyRect.Y + 6,
+                Math.Max(timelinePreviewRect.X - timelineBodyRect.X - 12, 120),
+                timelineControlsHeight);
 
         List<ActionRect<PixelStudioToolKind>> toolButtons = toolsCollapsed ? [] : CreatePixelToolButtons(toolbarButtonRegion, pixelStudio.SelectionMode);
         List<ActionRect<PixelStudioAction>> toolSettingsButtons = [];
@@ -1215,6 +1236,7 @@ public static partial class EditorLayoutEngine
             if (pixelStudio.HasSelection)
             {
                 selectionActions.Add(PixelStudioAction.ClearSelection);
+                selectionActions.Add(PixelStudioAction.ToggleSelectionTransformMode);
                 selectionActions.Add(PixelStudioAction.CopySelection);
                 selectionActions.Add(PixelStudioAction.CutSelection);
                 selectionActions.Add(PixelStudioAction.RotateSelectionCounterClockwise);
@@ -1376,6 +1398,13 @@ public static partial class EditorLayoutEngine
         UiRect? palettePromptRect = null;
         UiRect? contextMenuRect = null;
         UiRect? canvasResizeDialogRect = null;
+        UiRect? onionOpacitySliderRect = null;
+        UiRect? onionOpacityFillRect = null;
+        UiRect? onionOpacityKnobRect = null;
+        UiRect? layerOpacitySliderRect = null;
+        UiRect? layerOpacityFillRect = null;
+        UiRect? layerOpacityKnobRect = null;
+        UiRect? layerAlphaLockButtonRect = null;
         List<ActionRect<PixelStudioAction>> canvasResizeDialogButtons = [];
 
         float librarySectionHeight = pixelStudio.PaletteLibraryVisible
@@ -1620,7 +1649,8 @@ public static partial class EditorLayoutEngine
                 28,
                 8,
                 [
-                    PixelStudioAction.AddLayer
+                    PixelStudioAction.AddLayer,
+                    PixelStudioAction.ToggleLayerAlphaLock
                 ],
                 96,
                 24);
@@ -1635,6 +1665,29 @@ public static partial class EditorLayoutEngine
         float layerListY = layersButtonRegion.Y + layersButtonRegion.Height + 12;
         if (!sidebarCollapsed)
         {
+            layerAlphaLockButtonRect = layerButtons.FirstOrDefault(button => button.Action == PixelStudioAction.ToggleLayerAlphaLock)?.Rect;
+            float layerSliderX = layersBodyRect.X + 58f;
+            float layerSliderWidth = Math.Max(layersBodyRect.Width - 60f, 72f);
+            layerOpacitySliderRect = new UiRect(layerSliderX, layersButtonRegion.Y + layersButtonRegion.Height + 18f, layerSliderWidth, 10f);
+            float layerOpacityRatio = Math.Clamp(pixelStudio.ActiveLayerOpacity, 0f, 1f);
+            float layerOpacityTrackWidth = Math.Max(layerOpacitySliderRect.Value.Width - 4f, 0f);
+            float layerOpacityFillWidth = layerOpacityTrackWidth * layerOpacityRatio;
+            layerOpacityFillRect = new UiRect(
+                layerOpacitySliderRect.Value.X + 2f,
+                layerOpacitySliderRect.Value.Y + 2f,
+                layerOpacityFillWidth,
+                Math.Max(layerOpacitySliderRect.Value.Height - 4f, 0f));
+            float layerKnobX = layerOpacitySliderRect.Value.X + 2f + layerOpacityFillWidth - 6f;
+            layerKnobX = Math.Clamp(
+                layerKnobX,
+                layerOpacitySliderRect.Value.X,
+                layerOpacitySliderRect.Value.X + Math.Max(layerOpacitySliderRect.Value.Width - 12f, 0f));
+            layerOpacityKnobRect = new UiRect(
+                layerKnobX,
+                layerOpacitySliderRect.Value.Y - 3f,
+                12f,
+                Math.Max(layerOpacitySliderRect.Value.Height + 6f, 0f));
+            layerListY = layerOpacitySliderRect.Value.Y + layerOpacitySliderRect.Value.Height + 18f;
             if (pixelStudio.LayerRenameActive)
             {
                 layerRenameFieldRect = new UiRect(layersBodyRect.X, layerListY, layersBodyRect.Width, 30);
@@ -1700,35 +1753,83 @@ public static partial class EditorLayoutEngine
         }
 
         UiRect playbackPreviewRect = timelinePreviewRect;
-        List<ActionRect<PixelStudioAction>> timelineButtons = timelineVisible
-            ? CreateButtonRow(
+        List<ActionRect<PixelStudioAction>> timelineButtons = [];
+        if (timelineVisible)
+        {
+            timelineButtons.AddRange(CreateButtonRow(
                 timelineControlsRect.X,
                 timelineControlsRect.Y,
                 30,
-                8,
+                6,
                 [
                     PixelStudioAction.TogglePlayback,
+                    PixelStudioAction.ToggleOnionSkin,
                     PixelStudioAction.DecreaseFrameRate,
                     PixelStudioAction.IncreaseFrameRate,
-                    PixelStudioAction.AddFrame,
-                    PixelStudioAction.DeleteFrame
+                    PixelStudioAction.DecreaseFrameDuration,
+                    PixelStudioAction.IncreaseFrameDuration
                 ],
-                88,
-                24)
-            : [];
+                54,
+                16));
+            timelineButtons.AddRange(CreateButtonRow(
+                timelineControlsRect.X,
+                timelineControlsRect.Y + 38,
+                30,
+                6,
+                [
+                    PixelStudioAction.CopyFrame,
+                    PixelStudioAction.PasteFrame,
+                    PixelStudioAction.AddFrame,
+                    PixelStudioAction.DuplicateFrame,
+                    PixelStudioAction.DeleteFrame,
+                    PixelStudioAction.ExportGif,
+                    PixelStudioAction.ExportPngSequence
+                ],
+                54,
+                16));
+
+            if (pixelStudio.ShowOnionSkin)
+            {
+                float sliderWidth = Math.Clamp(MathF.Min(timelineControlsRect.Width * 0.18f, 70f), 46f, 70f);
+                float sliderHeight = 8f;
+                onionOpacitySliderRect = new UiRect(
+                    Math.Max(timelineControlsRect.X + timelineControlsRect.Width - sliderWidth - 10f, timelineControlsRect.X + 72f),
+                    timelineControlsRect.Y + 14f,
+                    sliderWidth,
+                    sliderHeight);
+                float onionRatio = Math.Clamp(pixelStudio.OnionOpacity, 0f, 1f);
+                float onionTrackWidth = Math.Max(onionOpacitySliderRect.Value.Width - 4f, 0f);
+                float onionFillWidth = onionTrackWidth * onionRatio;
+                onionOpacityFillRect = new UiRect(
+                    onionOpacitySliderRect.Value.X + 2f,
+                    onionOpacitySliderRect.Value.Y + 2f,
+                    onionFillWidth,
+                    Math.Max(onionOpacitySliderRect.Value.Height - 4f, 0f));
+                float onionKnobX = onionOpacitySliderRect.Value.X + 2f + onionFillWidth - 5f;
+                onionKnobX = Math.Clamp(
+                    onionKnobX,
+                    onionOpacitySliderRect.Value.X,
+                    onionOpacitySliderRect.Value.X + Math.Max(onionOpacitySliderRect.Value.Width - 10f, 0f));
+                onionOpacityKnobRect = new UiRect(
+                    onionKnobX,
+                    onionOpacitySliderRect.Value.Y - 3f,
+                    10f,
+                    Math.Max(onionOpacitySliderRect.Value.Height + 6f, 0f));
+            }
+        }
 
         UiRect? frameListViewportRect = null;
         UiRect? frameScrollTrackRect = null;
         UiRect? frameScrollThumbRect = null;
         List<IndexedRect> frameRows = [];
-        float frameListStartY = timelineControlsRect.Y + timelineControlsRect.Height + 14;
-        if (timelineVisible && pixelStudio.FrameRenameActive)
+        float frameListStartY = timelineControlsRect.Y + timelineControlsRect.Height + 10;
+        if (timelineVisible && !expandedPlaybackPreview && pixelStudio.FrameRenameActive)
         {
             frameRenameFieldRect = new UiRect(timelineBodyRect.X, frameListStartY, Math.Max(playbackPreviewRect.X - 18 - timelineBodyRect.X, 120), 30);
             frameListStartY += 38;
         }
 
-        if (timelineVisible)
+        if (timelineVisible && !expandedPlaybackPreview)
         {
             UiRect frameViewportFrameRect = new(
                 timelineBodyRect.X,
@@ -1744,7 +1845,8 @@ public static partial class EditorLayoutEngine
             List<(int FrameIndex, float Width)> currentRow = [];
             for (int index = 0; index < pixelStudio.Frames.Count; index++)
             {
-                float frameWidth = EstimateButtonWidth(pixelStudio.Frames[index].Name, 92, 34);
+                string frameLabel = pixelStudio.Frames[index].Name;
+                float frameWidth = EstimateButtonWidth(frameLabel, 110, 34);
                 float projectedRight = currentRow.Count == 0
                     ? frameListViewportRect.Value.X + frameWidth
                     : frameX + 10 + frameWidth;
@@ -1790,84 +1892,111 @@ public static partial class EditorLayoutEngine
             }
         }
 
-        if (pixelStudio.CanvasResizeDialogVisible)
+        if (pixelStudio.WarningDialogVisible || pixelStudio.CanvasResizeDialogVisible)
         {
-            float dialogWidth = Math.Clamp(MathF.Min(workspaceRect.Width - 56f, 388f), 320f, 388f);
-            float dialogHeight = Math.Clamp(MathF.Min(workspaceRect.Height - 56f, 332f), 304f, 332f);
-            float dialogX = workspaceRect.X + Math.Max((workspaceRect.Width - dialogWidth) * 0.5f, 16f);
-            float dialogY = workspaceRect.Y + Math.Max((workspaceRect.Height - dialogHeight) * 0.5f, 28f);
-            canvasResizeDialogRect = SnapRect(new UiRect(dialogX, dialogY, dialogWidth, dialogHeight));
+            if (pixelStudio.WarningDialogVisible)
+            {
+                float dialogWidth = Math.Clamp(MathF.Min(workspaceRect.Width - 72f, 432f), 332f, 432f);
+                float dialogHeight = Math.Clamp(MathF.Min(workspaceRect.Height - 88f, 252f), 212f, 252f);
+                float dialogX = workspaceRect.X + Math.Max((workspaceRect.Width - dialogWidth) * 0.5f, 16f);
+                float dialogY = workspaceRect.Y + Math.Max((workspaceRect.Height - dialogHeight) * 0.5f, 28f);
+                canvasResizeDialogRect = SnapRect(new UiRect(dialogX, dialogY, dialogWidth, dialogHeight));
 
-            UiRect dialogContentRect = Inset(canvasResizeDialogRect.Value, 16f);
-            float fieldHeight = 40f;
-            float fieldGap = 12f;
-            float fieldWidth = Math.Max(MathF.Floor((dialogContentRect.Width - fieldGap) * 0.5f), 108f);
-            float fieldY = dialogContentRect.Y + 22f;
-            canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
-            {
-                Action = PixelStudioAction.ActivateCanvasResizeWidthField,
-                Rect = new UiRect(dialogContentRect.X, fieldY, fieldWidth, fieldHeight)
-            });
-            canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
-            {
-                Action = PixelStudioAction.ActivateCanvasResizeHeightField,
-                Rect = new UiRect(dialogContentRect.X + fieldWidth + fieldGap, fieldY, fieldWidth, fieldHeight)
-            });
-
-            float anchorButtonGap = 8f;
-            float anchorButtonSize = Math.Clamp(MathF.Floor((dialogContentRect.Width - (anchorButtonGap * 2f)) / 6f), 34f, 40f);
-            float anchorGridWidth = (anchorButtonSize * 3f) + (anchorButtonGap * 2f);
-            float anchorStartX = dialogContentRect.X + Math.Max((dialogContentRect.Width - anchorGridWidth) * 0.5f, 0f);
-            float anchorStartY = fieldY + fieldHeight + 58f;
-            PixelStudioAction[,] anchorActions =
-            {
+                UiRect dialogContentRect = Inset(canvasResizeDialogRect.Value, 18f);
+                float footerGap = 12f;
+                float footerButtonHeight = 36f;
+                float footerButtonWidth = Math.Max(MathF.Floor((dialogContentRect.Width - footerGap) * 0.5f), 118f);
+                float footerY = (canvasResizeDialogRect.Value.Y + canvasResizeDialogRect.Value.Height) - 54f;
+                canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
                 {
-                    PixelStudioAction.SetCanvasResizeAnchorTopLeft,
-                    PixelStudioAction.SetCanvasResizeAnchorTop,
-                    PixelStudioAction.SetCanvasResizeAnchorTopRight
-                },
+                    Action = PixelStudioAction.ConfirmWarningDialog,
+                    Rect = new UiRect(dialogContentRect.X, footerY, footerButtonWidth, footerButtonHeight)
+                });
+                canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
                 {
-                    PixelStudioAction.SetCanvasResizeAnchorLeft,
-                    PixelStudioAction.SetCanvasResizeAnchorCenter,
-                    PixelStudioAction.SetCanvasResizeAnchorRight
-                },
-                {
-                    PixelStudioAction.SetCanvasResizeAnchorBottomLeft,
-                    PixelStudioAction.SetCanvasResizeAnchorBottom,
-                    PixelStudioAction.SetCanvasResizeAnchorBottomRight
-                }
-            };
-
-            for (int row = 0; row < 3; row++)
-            {
-                for (int column = 0; column < 3; column++)
-                {
-                    canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
-                    {
-                        Action = anchorActions[row, column],
-                        Rect = new UiRect(
-                            anchorStartX + (column * (anchorButtonSize + anchorButtonGap)),
-                            anchorStartY + (row * (anchorButtonSize + anchorButtonGap)),
-                            anchorButtonSize,
-                            anchorButtonSize)
-                    });
-                }
+                    Action = PixelStudioAction.CancelWarningDialog,
+                    Rect = new UiRect(dialogContentRect.X + footerButtonWidth + footerGap, footerY, footerButtonWidth, footerButtonHeight)
+                });
             }
+            else
+            {
+                float dialogWidth = Math.Clamp(MathF.Min(workspaceRect.Width - 56f, 388f), 320f, 388f);
+                float dialogHeight = Math.Clamp(MathF.Min(workspaceRect.Height - 56f, 332f), 304f, 332f);
+                float dialogX = workspaceRect.X + Math.Max((workspaceRect.Width - dialogWidth) * 0.5f, 16f);
+                float dialogY = workspaceRect.Y + Math.Max((workspaceRect.Height - dialogHeight) * 0.5f, 28f);
+                canvasResizeDialogRect = SnapRect(new UiRect(dialogX, dialogY, dialogWidth, dialogHeight));
 
-            float footerGap = 10f;
-            float footerButtonHeight = 34f;
-            float footerButtonWidth = Math.Max(MathF.Floor((dialogContentRect.Width - footerGap) * 0.5f), 118f);
-            float footerY = anchorStartY + (anchorButtonSize * 3f) + (anchorButtonGap * 2f) + 16f;
-            canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
-            {
-                Action = PixelStudioAction.ApplyCanvasResize,
-                Rect = new UiRect(dialogContentRect.X, footerY, footerButtonWidth, footerButtonHeight)
-            });
-            canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
-            {
-                Action = PixelStudioAction.CancelCanvasResize,
-                Rect = new UiRect(dialogContentRect.X + footerButtonWidth + footerGap, footerY, footerButtonWidth, footerButtonHeight)
-            });
+                UiRect dialogContentRect = Inset(canvasResizeDialogRect.Value, 16f);
+                float fieldHeight = 40f;
+                float fieldGap = 12f;
+                float fieldWidth = Math.Max(MathF.Floor((dialogContentRect.Width - fieldGap) * 0.5f), 108f);
+                float fieldY = dialogContentRect.Y + 22f;
+                canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
+                {
+                    Action = PixelStudioAction.ActivateCanvasResizeWidthField,
+                    Rect = new UiRect(dialogContentRect.X, fieldY, fieldWidth, fieldHeight)
+                });
+                canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
+                {
+                    Action = PixelStudioAction.ActivateCanvasResizeHeightField,
+                    Rect = new UiRect(dialogContentRect.X + fieldWidth + fieldGap, fieldY, fieldWidth, fieldHeight)
+                });
+
+                float anchorButtonGap = 8f;
+                float anchorButtonSize = Math.Clamp(MathF.Floor((dialogContentRect.Width - (anchorButtonGap * 2f)) / 6f), 34f, 40f);
+                float anchorGridWidth = (anchorButtonSize * 3f) + (anchorButtonGap * 2f);
+                float anchorStartX = dialogContentRect.X + Math.Max((dialogContentRect.Width - anchorGridWidth) * 0.5f, 0f);
+                float anchorStartY = fieldY + fieldHeight + 58f;
+                PixelStudioAction[,] anchorActions =
+                {
+                    {
+                        PixelStudioAction.SetCanvasResizeAnchorTopLeft,
+                        PixelStudioAction.SetCanvasResizeAnchorTop,
+                        PixelStudioAction.SetCanvasResizeAnchorTopRight
+                    },
+                    {
+                        PixelStudioAction.SetCanvasResizeAnchorLeft,
+                        PixelStudioAction.SetCanvasResizeAnchorCenter,
+                        PixelStudioAction.SetCanvasResizeAnchorRight
+                    },
+                    {
+                        PixelStudioAction.SetCanvasResizeAnchorBottomLeft,
+                        PixelStudioAction.SetCanvasResizeAnchorBottom,
+                        PixelStudioAction.SetCanvasResizeAnchorBottomRight
+                    }
+                };
+
+                for (int row = 0; row < 3; row++)
+                {
+                    for (int column = 0; column < 3; column++)
+                    {
+                        canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
+                        {
+                            Action = anchorActions[row, column],
+                            Rect = new UiRect(
+                                anchorStartX + (column * (anchorButtonSize + anchorButtonGap)),
+                                anchorStartY + (row * (anchorButtonSize + anchorButtonGap)),
+                                anchorButtonSize,
+                                anchorButtonSize)
+                        });
+                    }
+                }
+
+                float footerGap = 10f;
+                float footerButtonHeight = 34f;
+                float footerButtonWidth = Math.Max(MathF.Floor((dialogContentRect.Width - footerGap) * 0.5f), 118f);
+                float footerY = anchorStartY + (anchorButtonSize * 3f) + (anchorButtonGap * 2f) + 16f;
+                canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
+                {
+                    Action = PixelStudioAction.ApplyCanvasResize,
+                    Rect = new UiRect(dialogContentRect.X, footerY, footerButtonWidth, footerButtonHeight)
+                });
+                canvasResizeDialogButtons.Add(new ActionRect<PixelStudioAction>
+                {
+                    Action = PixelStudioAction.CancelCanvasResize,
+                    Rect = new UiRect(dialogContentRect.X + footerButtonWidth + footerGap, footerY, footerButtonWidth, footerButtonHeight)
+                });
+            }
         }
 
         PixelStudioCameraState camera = PixelStudioCameraMath.Compute(
@@ -1881,6 +2010,56 @@ public static partial class EditorLayoutEngine
         UiRect canvasViewportRect = camera.ViewportRect;
 
         List<IndexedRect> canvasCells = [];
+        UiRect? selectionTransformPreviewRect = null;
+        List<PixelStudioSelectionHandleRect> selectionHandleRects = [];
+        if (pixelStudio.HasSelection && cellSize > 0)
+        {
+            int selectionLeft = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewX : pixelStudio.SelectionX;
+            int selectionTop = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewY : pixelStudio.SelectionY;
+            int selectionWidth = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewWidth : pixelStudio.SelectionWidth;
+            int selectionHeight = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewHeight : pixelStudio.SelectionHeight;
+            if (selectionWidth > 0 && selectionHeight > 0)
+            {
+                UiRect selectionBoundsRect = SnapRect(new UiRect(
+                    canvasViewportRect.X + (selectionLeft * cellSize),
+                    canvasViewportRect.Y + (selectionTop * cellSize),
+                    Math.Max(selectionWidth * cellSize, 1),
+                    Math.Max(selectionHeight * cellSize, 1)));
+                if (pixelStudio.SelectionTransformPreviewVisible)
+                {
+                    selectionTransformPreviewRect = selectionBoundsRect;
+                }
+
+                if (pixelStudio.SelectionTransformModeActive)
+                {
+                    float handleSize = Math.Clamp(MathF.Min(Math.Max(cellSize * 0.5f, 10f), 16f), 10f, 16f);
+                    float handleHalf = handleSize * 0.5f;
+                    selectionHandleRects =
+                    [
+                        new PixelStudioSelectionHandleRect
+                        {
+                            Kind = PixelStudioSelectionHandleKind.TopLeft,
+                            Rect = SnapRect(new UiRect(selectionBoundsRect.X - handleHalf, selectionBoundsRect.Y - handleHalf, handleSize, handleSize))
+                        },
+                        new PixelStudioSelectionHandleRect
+                        {
+                            Kind = PixelStudioSelectionHandleKind.TopRight,
+                            Rect = SnapRect(new UiRect(selectionBoundsRect.X + selectionBoundsRect.Width - handleHalf, selectionBoundsRect.Y - handleHalf, handleSize, handleSize))
+                        },
+                        new PixelStudioSelectionHandleRect
+                        {
+                            Kind = PixelStudioSelectionHandleKind.BottomLeft,
+                            Rect = SnapRect(new UiRect(selectionBoundsRect.X - handleHalf, selectionBoundsRect.Y + selectionBoundsRect.Height - handleHalf, handleSize, handleSize))
+                        },
+                        new PixelStudioSelectionHandleRect
+                        {
+                            Kind = PixelStudioSelectionHandleKind.BottomRight,
+                            Rect = SnapRect(new UiRect(selectionBoundsRect.X + selectionBoundsRect.Width - handleHalf, selectionBoundsRect.Y + selectionBoundsRect.Height - handleHalf, handleSize, handleSize))
+                        }
+                    ];
+                }
+            }
+        }
 
         return new PixelStudioLayoutSnapshot
         {
@@ -1898,6 +2077,8 @@ public static partial class EditorLayoutEngine
             ToolSettingsPanelRect = toolSettingsPanelRect,
             NavigatorPanelRect = navigatorPanelRect,
             NavigatorPreviewRect = navigatorPreviewRect,
+            AnimationPreviewPanelRect = animationPreviewPanelRect,
+            AnimationPreviewContentRect = animationPreviewContentRect,
             LayersPanelRect = layersPanelRect,
             TimelinePanelRect = timelineRect,
             ActiveColorRect = activeColorRect,
@@ -1908,6 +2089,13 @@ public static partial class EditorLayoutEngine
             PaletteAlphaSliderRect = paletteAlphaSliderRect,
             PaletteAlphaFillRect = paletteAlphaFillRect,
             PaletteAlphaKnobRect = paletteAlphaKnobRect,
+            OnionOpacitySliderRect = onionOpacitySliderRect,
+            OnionOpacityFillRect = onionOpacityFillRect,
+            OnionOpacityKnobRect = onionOpacityKnobRect,
+            LayerOpacitySliderRect = layerOpacitySliderRect,
+            LayerOpacityFillRect = layerOpacityFillRect,
+            LayerOpacityKnobRect = layerOpacityKnobRect,
+            LayerAlphaLockButtonRect = layerAlphaLockButtonRect,
             PlaybackPreviewRect = playbackPreviewRect,
             PaletteSwatchViewportRect = paletteSwatchViewportRect,
             PaletteSwatchScrollTrackRect = paletteSwatchScrollTrackRect,
@@ -1932,6 +2120,7 @@ public static partial class EditorLayoutEngine
             BrushSizeFillRect = brushSizeFillRect,
             BrushSizeKnobRect = brushSizeKnobRect,
             BrushPreviewRect = brushPreviewRect,
+            SelectionTransformPreviewRect = selectionTransformPreviewRect,
             CameraZoom = camera.Zoom,
             CameraPanX = camera.PanX,
             CameraPanY = camera.PanY,
@@ -1954,7 +2143,8 @@ public static partial class EditorLayoutEngine
             LayerRows = layerRows,
             LayerVisibilityButtons = layerVisibilityButtons,
             FrameRows = frameRows,
-            CanvasCells = canvasCells
+            CanvasCells = canvasCells,
+            SelectionHandleRects = selectionHandleRects
         };
     }
 
@@ -1994,6 +2184,28 @@ public static partial class EditorLayoutEngine
             Math.Max(panelRect.Height - (previewInset * 2f), 0f));
     }
 
+    private static void GetAnimationPreviewPanelSizeLimits(UiRect canvasBodyRect, out float minWidth, out float minHeight, out float maxWidth, out float maxHeight)
+    {
+        minWidth = Math.Clamp(MathF.Min(canvasBodyRect.Width * 0.24f, 260f), 200f, 260f);
+        minHeight = Math.Clamp(MathF.Min(canvasBodyRect.Height * 0.28f, 228f), 176f, 228f);
+        minWidth = Math.Min(minWidth, Math.Max(canvasBodyRect.Width, 0f));
+        minHeight = Math.Min(minHeight, Math.Max(canvasBodyRect.Height, 0f));
+        maxWidth = Math.Min(Math.Max(minWidth, MathF.Min(canvasBodyRect.Width * 0.68f, 620f)), Math.Max(canvasBodyRect.Width, minWidth));
+        maxHeight = Math.Min(Math.Max(minHeight, MathF.Min(canvasBodyRect.Height * 0.72f, 520f)), Math.Max(canvasBodyRect.Height, minHeight));
+    }
+
+    private static UiRect GetAnimationPreviewContentRect(UiRect panelRect)
+    {
+        const float horizontalInset = 14f;
+        const float topInset = 34f;
+        const float bottomInset = 14f;
+        return new UiRect(
+            panelRect.X + horizontalInset,
+            panelRect.Y + topInset,
+            Math.Max(panelRect.Width - (horizontalInset * 2f), 0f),
+            Math.Max(panelRect.Height - topInset - bottomInset, 0f));
+    }
+
     private static List<ActionRect<PixelStudioToolKind>> CreatePixelToolButtons(UiRect toolbarRect, PixelStudioSelectionMode selectionMode)
     {
         PixelStudioToolKind[] toolOrder =
@@ -2014,7 +2226,7 @@ public static partial class EditorLayoutEngine
             Id = "PixelStudio.Tools.Buttons",
             Bounds = toolbarRect,
             Padding = 0,
-            Spacing = 8
+            Spacing = 2
         };
 
         IReadOnlyList<UiLayoutPlacement<PixelStudioToolKind>> placements = LayoutVertical(
@@ -2026,8 +2238,8 @@ public static partial class EditorLayoutEngine
                 Value = tool,
                 MinWidth = toolbarRect.Width,
                 MaxWidth = toolbarRect.Width,
-                Height = 36,
-                HorizontalPadding = 10
+                Height = 28,
+                HorizontalPadding = 0
             }).ToList());
 
         return placements
@@ -2142,16 +2354,16 @@ public static partial class EditorLayoutEngine
             {
                 PixelStudioSelectionMode.AutoGlobal => "AG",
                 PixelStudioSelectionMode.AutoLocal => "AL",
-                _ => "Sel"
+                _ => "S"
             },
-            PixelStudioToolKind.Hand => "Pan",
-            PixelStudioToolKind.Pencil => "Pen",
-            PixelStudioToolKind.Eraser => "Era",
-            PixelStudioToolKind.Line => "Lin",
-            PixelStudioToolKind.Rectangle => "Box",
-            PixelStudioToolKind.Ellipse => "Ell",
-            PixelStudioToolKind.Fill => "Fill",
-            PixelStudioToolKind.Picker => "Pick",
+            PixelStudioToolKind.Hand => "H",
+            PixelStudioToolKind.Pencil => "P",
+            PixelStudioToolKind.Eraser => "E",
+            PixelStudioToolKind.Line => "/",
+            PixelStudioToolKind.Rectangle => "[]",
+            PixelStudioToolKind.Ellipse => "()",
+            PixelStudioToolKind.Fill => "F",
+            PixelStudioToolKind.Picker => "I",
             _ => tool.ToString()
         };
     }
@@ -2166,6 +2378,9 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.LoadDemoDocument => "Demo",
             PixelStudioAction.ImportImage => "Import",
             PixelStudioAction.ExportSpriteStrip => "Strip",
+            PixelStudioAction.ExportPngSequence => "PNGs",
+            PixelStudioAction.ExportGif => "GIF",
+            PixelStudioAction.ToggleOnionSkin => "Onion",
             PixelStudioAction.OpenCanvasResizeDialog => "Custom",
             PixelStudioAction.ResizeCanvas16 => "16px",
             PixelStudioAction.ResizeCanvas32 => "32px",
@@ -2193,7 +2408,9 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.ResetView => "Reset",
             PixelStudioAction.ExportPng => "Export",
             PixelStudioAction.ToggleNavigatorPanel => "Nav",
+            PixelStudioAction.ToggleAnimationPreviewPanel => "Preview",
             PixelStudioAction.ClearSelection => "Deselect",
+            PixelStudioAction.ToggleSelectionTransformMode => "Transform",
             PixelStudioAction.CopySelection => "Copy",
             PixelStudioAction.CutSelection => "Cut",
             PixelStudioAction.PasteSelection => "Paste",
@@ -2203,6 +2420,8 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.RotateSelectionCounterClockwise => "Rot-",
             PixelStudioAction.ScaleSelectionUp => "2x",
             PixelStudioAction.ScaleSelectionDown => "/2",
+            PixelStudioAction.ConfirmWarningDialog => "Continue",
+            PixelStudioAction.CancelWarningDialog => "Cancel",
             PixelStudioAction.NudgeSelectionLeft => "Left",
             PixelStudioAction.NudgeSelectionRight => "Right",
             PixelStudioAction.NudgeSelectionUp => "Up",
@@ -2232,12 +2451,18 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.DecreaseBlue => "B-",
             PixelStudioAction.IncreaseBlue => "B+",
             PixelStudioAction.AddLayer => "Layer +",
+            PixelStudioAction.ToggleLayerAlphaLock => "Alpha",
             PixelStudioAction.DeleteLayer => "Layer -",
             PixelStudioAction.AddFrame => "Frame +",
+            PixelStudioAction.DuplicateFrame => "Dup",
+            PixelStudioAction.CopyFrame => "Copy",
+            PixelStudioAction.PasteFrame => "Paste",
             PixelStudioAction.DeleteFrame => "Frame -",
             PixelStudioAction.TogglePlayback => "Play",
             PixelStudioAction.DecreaseFrameRate => "FPS -",
             PixelStudioAction.IncreaseFrameRate => "FPS +",
+            PixelStudioAction.DecreaseFrameDuration => "Dur -",
+            PixelStudioAction.IncreaseFrameDuration => "Dur +",
             _ => action.ToString()
         };
     }

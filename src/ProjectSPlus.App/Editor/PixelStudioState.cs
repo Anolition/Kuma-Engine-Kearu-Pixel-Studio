@@ -22,6 +22,10 @@ public sealed class PixelStudioState
 
     public int FramesPerSecond { get; set; } = 8;
 
+    public bool ShowOnionSkin { get; set; } = true;
+
+    public float OnionOpacity { get; set; } = 0.42f;
+
     public bool IsPlaying { get; set; }
 
     public int PreviewFrameIndex { get; set; }

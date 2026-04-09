@@ -26,5 +26,7 @@ public sealed class EditorSettings
 
     public PixelStudioColorPickerMode PixelColorPickerMode { get; init; } = PixelStudioColorPickerMode.RgbField;
 
+    public EditorNotificationSoundMode NotificationSoundMode { get; init; } = EditorNotificationSoundMode.Custom;
+
     public IReadOnlyList<SavedEditorTheme> CustomThemes { get; init; } = [];
 }

@@ -75,7 +75,19 @@ public sealed class JsonSettingsStore
             || normalizedLayout.PixelToolsPanelCollapsed != settings.Editor.Layout.PixelToolsPanelCollapsed
             || normalizedLayout.PixelSidebarCollapsed != settings.Editor.Layout.PixelSidebarCollapsed
             || normalizedLayout.PixelToolSettingsDockSide != settings.Editor.Layout.PixelToolSettingsDockSide
-            || normalizedLayout.PixelTimelineVisible != settings.Editor.Layout.PixelTimelineVisible;
+            || normalizedLayout.PixelTimelineVisible != settings.Editor.Layout.PixelTimelineVisible
+            || normalizedLayout.PixelToolSettingsOffsetX != settings.Editor.Layout.PixelToolSettingsOffsetX
+            || normalizedLayout.PixelToolSettingsOffsetY != settings.Editor.Layout.PixelToolSettingsOffsetY
+            || normalizedLayout.PixelNavigatorVisible != settings.Editor.Layout.PixelNavigatorVisible
+            || normalizedLayout.PixelNavigatorOffsetX != settings.Editor.Layout.PixelNavigatorOffsetX
+            || normalizedLayout.PixelNavigatorOffsetY != settings.Editor.Layout.PixelNavigatorOffsetY
+            || normalizedLayout.PixelNavigatorWidth != settings.Editor.Layout.PixelNavigatorWidth
+            || normalizedLayout.PixelNavigatorHeight != settings.Editor.Layout.PixelNavigatorHeight
+            || normalizedLayout.PixelAnimationPreviewVisible != settings.Editor.Layout.PixelAnimationPreviewVisible
+            || normalizedLayout.PixelAnimationPreviewOffsetX != settings.Editor.Layout.PixelAnimationPreviewOffsetX
+            || normalizedLayout.PixelAnimationPreviewOffsetY != settings.Editor.Layout.PixelAnimationPreviewOffsetY
+            || normalizedLayout.PixelAnimationPreviewWidth != settings.Editor.Layout.PixelAnimationPreviewWidth
+            || normalizedLayout.PixelAnimationPreviewHeight != settings.Editor.Layout.PixelAnimationPreviewHeight;
 
         if (!windowChanged && !layoutChanged)
         {
@@ -99,6 +111,7 @@ public sealed class JsonSettingsStore
                 ActivePixelPaletteId = settings.Editor.ActivePixelPaletteId,
                 PromptForPaletteGenerationAfterImport = settings.Editor.PromptForPaletteGenerationAfterImport,
                 PixelColorPickerMode = settings.Editor.PixelColorPickerMode,
+                NotificationSoundMode = settings.Editor.NotificationSoundMode,
                 CustomThemes = settings.Editor.CustomThemes
             }
         };

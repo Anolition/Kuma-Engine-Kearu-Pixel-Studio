@@ -13,5 +13,8 @@ public enum EditorMenuAction
     ToggleTheme,
     CycleFontSize,
     CycleFontFamily,
-    CycleColorPickerMode
+    CycleColorPickerMode,
+    TestWarningSound,
+    TestCrashSound,
+    TriggerCrashReporterTest
 }

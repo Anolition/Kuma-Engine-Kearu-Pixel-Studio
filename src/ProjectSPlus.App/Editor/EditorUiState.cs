@@ -22,6 +22,10 @@ public sealed class EditorUiState
 
     public string FontSizeLabel { get; set; } = string.Empty;
 
+    public string NotificationSoundLabel { get; set; } = string.Empty;
+
+    public bool StartupSplashVisible { get; set; }
+
     public string ProjectLibraryPath { get; set; } = string.Empty;
 
     public float LeftPanelPreferredWidth { get; set; } = 280f;

@@ -450,7 +450,7 @@ public static partial class EditorLayoutEngine
                 UiPanel preferenceActionPanel = new()
                 {
                     Id = "Preferences.Actions",
-                    Bounds = new UiRect(generalBodyRect.X, generalBodyRect.Y + 54, generalBodyRect.Width, 160),
+                    Bounds = new UiRect(generalBodyRect.X, generalBodyRect.Y + 54, generalBodyRect.Width, 220),
                     Padding = 0,
                     Spacing = 12
                 };
@@ -462,6 +462,7 @@ public static partial class EditorLayoutEngine
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Size", Label = $"Text: {uiState.FontSizeLabel}", Value = EditorPreferenceAction.CycleFontSize, MinWidth = 178, MaxWidth = 232, Height = 50, HorizontalPadding = 36, Priority = 3 },
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Font", Label = $"Font: {uiState.FontFamily}", Value = EditorPreferenceAction.CycleFontFamily, MinWidth = 224, MaxWidth = 320, Height = 50, HorizontalPadding = 36, Priority = 2 },
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Picker", Label = $"Picker: {GetColorPickerModeLabel(uiState.PixelStudio.ColorPickerMode)}", Value = EditorPreferenceAction.CycleColorPickerMode, MinWidth = 216, MaxWidth = 284, Height = 50, HorizontalPadding = 30, Priority = 3 },
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Sound", Label = $"Sounds: {uiState.NotificationSoundLabel}", Value = EditorPreferenceAction.CycleNotificationSoundMode, MinWidth = 212, MaxWidth = 280, Height = 50, HorizontalPadding = 30, Priority = 3 },
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.ThemeStudio", Label = "Theme Studio", Value = EditorPreferenceAction.OpenThemeStudio, MinWidth = 198, MaxWidth = 250, Height = 50, HorizontalPadding = 30, Priority = 3 }
                     },
                     wrap: true);

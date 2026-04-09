@@ -12,6 +12,8 @@ namespace ProjectSPlus.App.Editor;
 
 public sealed partial class EditorWindowScene : IWindowScene
 {
+    private static readonly TimeSpan StartupSplashDuration = TimeSpan.FromSeconds(3.75);
+
     private enum ShellDragMode
     {
         None,
@@ -27,6 +29,8 @@ public sealed partial class EditorWindowScene : IWindowScene
     private readonly List<SavedPixelPalette> _savedPixelPalettes;
     private readonly List<SavedEditorTheme> _customThemes;
     private readonly EditorUiState _uiState = new();
+    private readonly PixelStudioRecoverySnapshot? _startupRecoverySnapshot;
+    private readonly bool _preserveDeferredRecoveryOnCleanExit;
 
     private string _preferredFontFamily;
     private string _projectLibraryPath;
@@ -38,9 +42,9 @@ public sealed partial class EditorWindowScene : IWindowScene
     private float _rightPanelWidth = 320;
     private float _previousLeftPanelWidth = 280;
     private float _previousRightPanelWidth = 320;
-    private float _pixelToolsPanelWidth = 164;
+    private float _pixelToolsPanelWidth = 40;
     private float _pixelSidebarWidth = 360;
-    private float _previousPixelToolsPanelWidth = 164;
+    private float _previousPixelToolsPanelWidth = 40;
     private float _previousPixelSidebarWidth = 360;
     private int _leftPanelRecentScrollRow;
     private int _homeRecentScrollRow;
@@ -72,6 +76,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private bool _pixelSidebarCollapsed;
     private bool _pixelTimelineVisible;
     private PixelStudioColorPickerMode _pixelColorPickerMode;
+    private EditorNotificationSoundMode _notificationSoundMode;
     private ShellDragMode _shellDragMode;
     private PixelStudioDragMode _pixelDragMode;
     private string _paletteRenameBuffer = string.Empty;
@@ -85,10 +90,14 @@ public sealed partial class EditorWindowScene : IWindowScene
     private float _pixelNavigatorPanelOffsetY = float.NaN;
     private float _pixelNavigatorPanelWidth = float.NaN;
     private float _pixelNavigatorPanelHeight = float.NaN;
+    private string _pixelWarningToastText = string.Empty;
+    private DateTimeOffset _pixelWarningToastExpiresAt = DateTimeOffset.MinValue;
     private StandardCursor _activeCursor = StandardCursor.Arrow;
+    private bool _startupSplashVisible = true;
+    private DateTimeOffset _startupSplashStartedAt = DateTimeOffset.MinValue;
 
     public EditorWindowScene(EditorShell shell, string initialThemeName)
-        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true, PixelStudioColorPickerMode.RgbField, [])
+        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, [], null, false)
     {
     }
 
@@ -106,9 +115,14 @@ public sealed partial class EditorWindowScene : IWindowScene
         string? activePixelPaletteId,
         bool promptForPaletteGenerationAfterImport,
         PixelStudioColorPickerMode pixelColorPickerMode,
-        IReadOnlyList<SavedEditorTheme> customThemes)
+        EditorNotificationSoundMode notificationSoundMode,
+        IReadOnlyList<SavedEditorTheme> customThemes,
+        PixelStudioRecoverySnapshot? recoverySnapshot,
+        bool preserveDeferredRecoveryOnCleanExit)
     {
         _shell = shell;
+        _startupRecoverySnapshot = recoverySnapshot;
+        _preserveDeferredRecoveryOnCleanExit = preserveDeferredRecoveryOnCleanExit;
         _preferredFontFamily = ResolveAvailableFontFamily(preferredFontFamily);
         _fontSizePreset = fontSizePreset;
         _projectLibraryPath = string.IsNullOrWhiteSpace(projectLibraryPath)
@@ -133,14 +147,16 @@ public sealed partial class EditorWindowScene : IWindowScene
         _previousRightPanelWidth = normalizedLayout.RightPanelWidth;
         _leftPanelCollapsed = normalizedLayout.LeftPanelCollapsed;
         _rightPanelCollapsed = normalizedLayout.RightPanelCollapsed;
-        _pixelToolsPanelWidth = normalizedLayout.PixelToolsPanelWidth;
+        _pixelToolsPanelWidth = normalizedLayout.PixelToolsPanelWidth <= 68.5f ? 40f : normalizedLayout.PixelToolsPanelWidth;
         _pixelSidebarWidth = normalizedLayout.PixelSidebarWidth;
-        _previousPixelToolsPanelWidth = normalizedLayout.PixelToolsPanelWidth;
+        _previousPixelToolsPanelWidth = normalizedLayout.PixelToolsPanelWidth <= 68.5f ? 40f : normalizedLayout.PixelToolsPanelWidth;
         _previousPixelSidebarWidth = normalizedLayout.PixelSidebarWidth;
         _pixelToolsCollapsed = normalizedLayout.PixelToolsPanelCollapsed;
         _pixelSidebarCollapsed = normalizedLayout.PixelSidebarCollapsed;
         _pixelTimelineVisible = normalizedLayout.PixelTimelineVisible;
         _pixelColorPickerMode = pixelColorPickerMode;
+        _notificationSoundMode = notificationSoundMode;
+        NotificationSoundPlayer.SoundMode = _notificationSoundMode;
         _pixelToolSettingsPanelOffsetX = normalizedLayout.PixelToolSettingsOffsetX ?? float.NaN;
         _pixelToolSettingsPanelOffsetY = normalizedLayout.PixelToolSettingsOffsetY ?? float.NaN;
         _pixelNavigatorVisible = normalizedLayout.PixelNavigatorVisible;
@@ -148,6 +164,11 @@ public sealed partial class EditorWindowScene : IWindowScene
         _pixelNavigatorPanelOffsetY = normalizedLayout.PixelNavigatorOffsetY ?? float.NaN;
         _pixelNavigatorPanelWidth = normalizedLayout.PixelNavigatorWidth ?? float.NaN;
         _pixelNavigatorPanelHeight = normalizedLayout.PixelNavigatorHeight ?? float.NaN;
+        _pixelAnimationPreviewVisible = normalizedLayout.PixelAnimationPreviewVisible;
+        _pixelAnimationPreviewPanelOffsetX = normalizedLayout.PixelAnimationPreviewOffsetX ?? float.NaN;
+        _pixelAnimationPreviewPanelOffsetY = normalizedLayout.PixelAnimationPreviewOffsetY ?? float.NaN;
+        _pixelAnimationPreviewPanelWidth = normalizedLayout.PixelAnimationPreviewWidth ?? float.NaN;
+        _pixelAnimationPreviewPanelHeight = normalizedLayout.PixelAnimationPreviewHeight ?? float.NaN;
         _savedPixelPalettes = savedPixelPalettes
             .Where(palette => !string.IsNullOrWhiteSpace(palette.Id))
             .Select(CloneSavedPixelPalette)
@@ -158,13 +179,25 @@ public sealed partial class EditorWindowScene : IWindowScene
         _tabs = CreateDefaultTabs();
         _pixelStudio = CreateDefaultPixelStudio();
         ApplyInitialSavedPaletteIfAvailable();
-        if (!string.IsNullOrWhiteSpace(_lastProjectPath))
+        if (_startupRecoverySnapshot is not null)
+        {
+            RestorePixelStudioRecovery(_startupRecoverySnapshot);
+        }
+        else if (!string.IsNullOrWhiteSpace(_lastProjectPath))
         {
             string? lastDocumentPath = FindPreferredPixelStudioDocument(_lastProjectPath);
             if (!string.IsNullOrWhiteSpace(lastDocumentPath))
             {
                 TryLoadPixelStudioDocument(lastDocumentPath, out _);
             }
+            else
+            {
+                ResetPixelStudioRecoveryTracking(useCurrentAsSavedBaseline: false, useCurrentAsAutosavedBaseline: false);
+            }
+        }
+        else
+        {
+            ResetPixelStudioRecoveryTracking(useCurrentAsSavedBaseline: false, useCurrentAsAutosavedBaseline: false);
         }
         ResetPaletteInteractionState();
         _uiState.ProjectForm = new EditorProjectFormState
@@ -174,13 +207,16 @@ public sealed partial class EditorWindowScene : IWindowScene
             FolderPickerEntries = GetDirectoryEntries(_projectLibraryPath)
         };
         _uiState.SelectedTabId = _tabs[0].Id;
-        SyncUiState();
+        SyncUiState(_startupRecoverySnapshot is not null ? $"Restored autosaved {EditorBranding.PixelToolName} session." : null);
     }
 
     public void Initialize(IWindow window, GL gl, Vector2D<int> framebufferSize)
     {
         _window = window;
         _renderer = new EditorShellRenderer(gl, _shell, _theme, _typography, _uiState);
+        _startupSplashVisible = true;
+        _startupSplashStartedAt = DateTimeOffset.UtcNow;
+        PixelStudioRecoveryCoordinator.Register(TryFlushPixelStudioRecoveryNow);
         Resize(framebufferSize.X, framebufferSize.Y);
         UpdateWindowTitle();
     }
@@ -201,8 +237,11 @@ public sealed partial class EditorWindowScene : IWindowScene
             _layoutSnapshot = EditorLayoutEngine.Create(_width, _height, _shell.Layout, _uiState);
         }
 
+        UpdateStartupSplashState();
         UpdateHeldTextEditing();
         UpdatePixelStudioPlayback();
+        UpdatePixelStudioAutosave();
+        UpdatePixelWarningToast();
         if (CurrentPage == EditorPageKind.PixelStudio)
         {
             SyncPixelStudioHoverUiState();
@@ -217,6 +256,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void OnKeyDown(IKeyboard keyboard, Key key, int scancode)
     {
+        if (_startupSplashVisible)
+        {
+            return;
+        }
+
         UpdatePixelStudioModifierState(keyboard, key, isPressed: true);
 
         if (HandleThemeStudioKeyDown(key))
@@ -322,6 +366,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void OnKeyUp(IKeyboard keyboard, Key key, int scancode)
     {
+        if (_startupSplashVisible)
+        {
+            return;
+        }
+
         UpdatePixelStudioModifierState(keyboard, key, isPressed: false);
         if (key == Key.Backspace)
         {
@@ -331,6 +380,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void OnKeyChar(IKeyboard keyboard, char character)
     {
+        if (_startupSplashVisible)
+        {
+            return;
+        }
+
         if (HandleThemeStudioTextInput(character))
         {
             return;
@@ -378,6 +432,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void OnMouseDown(IMouse mouse, MouseButton button)
     {
+        if (_startupSplashVisible)
+        {
+            return;
+        }
+
         if (_layoutSnapshot is null)
         {
             return;
@@ -539,6 +598,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void OnMouseUp(IMouse mouse, MouseButton button)
     {
+        if (_startupSplashVisible)
+        {
+            return;
+        }
+
         _shellDragMode = ShellDragMode.None;
         HandleThemeStudioMouseUp(button);
         if (_layoutSnapshot?.PixelStudio is not null)
@@ -551,6 +615,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void OnMouseMove(IMouse mouse, System.Numerics.Vector2 position)
     {
+        if (_startupSplashVisible)
+        {
+            return;
+        }
+
         if (_layoutSnapshot is null)
         {
             return;
@@ -587,6 +656,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void OnMouseScroll(IMouse mouse, ScrollWheel scrollWheel)
     {
+        if (_startupSplashVisible)
+        {
+            return;
+        }
+
         if (_layoutSnapshot is null)
         {
             return;
@@ -755,6 +829,23 @@ public sealed partial class EditorWindowScene : IWindowScene
             return StandardCursor.Hand;
         }
 
+        if (layout.AnimationPreviewPanelRect is not null && layout.AnimationPreviewPanelRect.Value.Contains(mouseX, mouseY))
+        {
+            if (TryGetNavigatorResizeCorner(layout.AnimationPreviewPanelRect.Value, mouseX, mouseY, out NavigatorResizeCorner corner))
+            {
+                return corner is NavigatorResizeCorner.TopLeft or NavigatorResizeCorner.BottomRight
+                    ? StandardCursor.NwseResize
+                    : StandardCursor.NeswResize;
+            }
+
+            if (layout.AnimationPreviewContentRect is not null && layout.AnimationPreviewContentRect.Value.Contains(mouseX, mouseY))
+            {
+                return StandardCursor.Hand;
+            }
+
+            return StandardCursor.ResizeAll;
+        }
+
         if (layout.ToolSettingsPanelRect.Width > 40f && layout.ToolSettingsPanelRect.Contains(mouseX, mouseY))
         {
             return StandardCursor.ResizeAll;
@@ -864,6 +955,8 @@ public sealed partial class EditorWindowScene : IWindowScene
             SavePixelStudioDocument();
         }
 
+        FinalizePixelStudioRecoveryOnCleanExit();
+
         WindowSettings previousWindow = currentSettings.Window.Normalize();
         int safeWidth = window.Size.X >= WindowSettings.MinimumWidth ? window.Size.X : previousWindow.Width;
         int safeHeight = window.Size.Y >= WindowSettings.MinimumHeight ? window.Size.Y : previousWindow.Height;
@@ -905,12 +998,18 @@ public sealed partial class EditorWindowScene : IWindowScene
                 PixelNavigatorOffsetX = float.IsFinite(_pixelNavigatorPanelOffsetX) ? _pixelNavigatorPanelOffsetX : null,
                 PixelNavigatorOffsetY = float.IsFinite(_pixelNavigatorPanelOffsetY) ? _pixelNavigatorPanelOffsetY : null,
                 PixelNavigatorWidth = float.IsFinite(_pixelNavigatorPanelWidth) ? _pixelNavigatorPanelWidth : null,
-                PixelNavigatorHeight = float.IsFinite(_pixelNavigatorPanelHeight) ? _pixelNavigatorPanelHeight : null
+                PixelNavigatorHeight = float.IsFinite(_pixelNavigatorPanelHeight) ? _pixelNavigatorPanelHeight : null,
+                PixelAnimationPreviewVisible = _pixelAnimationPreviewVisible,
+                PixelAnimationPreviewOffsetX = float.IsFinite(_pixelAnimationPreviewPanelOffsetX) ? _pixelAnimationPreviewPanelOffsetX : null,
+                PixelAnimationPreviewOffsetY = float.IsFinite(_pixelAnimationPreviewPanelOffsetY) ? _pixelAnimationPreviewPanelOffsetY : null,
+                PixelAnimationPreviewWidth = float.IsFinite(_pixelAnimationPreviewPanelWidth) ? _pixelAnimationPreviewPanelWidth : null,
+                PixelAnimationPreviewHeight = float.IsFinite(_pixelAnimationPreviewPanelHeight) ? _pixelAnimationPreviewPanelHeight : null
             },
             PixelPalettes = _savedPixelPalettes.Select(CloneSavedPixelPalette).ToList(),
             ActivePixelPaletteId = _activePixelPaletteId,
             PromptForPaletteGenerationAfterImport = _promptForPaletteGenerationAfterImport,
             PixelColorPickerMode = _pixelColorPickerMode,
+            NotificationSoundMode = _notificationSoundMode,
             CustomThemes = _customThemes.Select(CloneSavedEditorTheme).ToList()
         };
 
@@ -923,6 +1022,7 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void Dispose()
     {
+        PixelStudioRecoveryCoordinator.Unregister(TryFlushPixelStudioRecoveryNow);
         _renderer?.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -937,11 +1037,21 @@ public sealed partial class EditorWindowScene : IWindowScene
             ? "Wheel"
             : "RGB+Field";
 
+    private string CurrentNotificationSoundLabel =>
+        _notificationSoundMode switch
+        {
+            EditorNotificationSoundMode.Windows => "Windows",
+            EditorNotificationSoundMode.None => "Off",
+            _ => "Kuma"
+        };
+
     private void SyncUiState(string? overrideStatus = null)
     {
+        _uiState.StartupSplashVisible = _startupSplashVisible;
         _uiState.ThemeLabel = CurrentThemeLabel;
         _uiState.FontFamily = _preferredFontFamily;
         _uiState.FontSizeLabel = _fontSizePreset.ToString();
+        _uiState.NotificationSoundLabel = CurrentNotificationSoundLabel;
         _uiState.ProjectLibraryPath = _projectLibraryPath;
         _uiState.LeftPanelPreferredWidth = _leftPanelWidth;
         _uiState.RightPanelPreferredWidth = _rightPanelWidth;
@@ -993,6 +1103,27 @@ public sealed partial class EditorWindowScene : IWindowScene
 
         string tabTitle = _tabs.FirstOrDefault(tab => tab.Id == _uiState.SelectedTabId)?.Title ?? "Home";
         _window.Title = $"{EditorBranding.EngineName} [{CurrentThemeLabel}] - {tabTitle}";
+    }
+
+    private void UpdateStartupSplashState()
+    {
+        if (!_startupSplashVisible)
+        {
+            _uiState.StartupSplashVisible = false;
+            return;
+        }
+
+        if (_startupSplashStartedAt == DateTimeOffset.MinValue)
+        {
+            _startupSplashStartedAt = DateTimeOffset.UtcNow;
+        }
+
+        if (DateTimeOffset.UtcNow - _startupSplashStartedAt >= StartupSplashDuration)
+        {
+            _startupSplashVisible = false;
+        }
+
+        _uiState.StartupSplashVisible = _startupSplashVisible;
     }
 
     private void ApplyShortcutRebind(Key key)
@@ -1051,6 +1182,19 @@ public sealed partial class EditorWindowScene : IWindowScene
         _renderer?.InvalidateTextCache();
     }
 
+    private void CycleNotificationSoundMode()
+    {
+        _notificationSoundMode = _notificationSoundMode switch
+        {
+            EditorNotificationSoundMode.Custom => EditorNotificationSoundMode.Windows,
+            EditorNotificationSoundMode.Windows => EditorNotificationSoundMode.None,
+            _ => EditorNotificationSoundMode.Custom
+        };
+        NotificationSoundPlayer.SoundMode = _notificationSoundMode;
+        SyncUiState($"Alert sounds set to {CurrentNotificationSoundLabel}.");
+        _renderer?.InvalidateTextCache();
+    }
+
     private void ExecuteMenuAction(EditorMenuAction action)
     {
         _uiState.OpenMenuName = null;
@@ -1093,6 +1237,16 @@ public sealed partial class EditorWindowScene : IWindowScene
             case EditorMenuAction.CycleColorPickerMode:
                 CycleColorPickerMode();
                 break;
+            case EditorMenuAction.TestWarningSound:
+                NotificationSoundPlayer.PlayWarning();
+                SyncUiState($"Played {CurrentNotificationSoundLabel} warning sound.");
+                break;
+            case EditorMenuAction.TestCrashSound:
+                NotificationSoundPlayer.PlayCrash();
+                SyncUiState($"Played {CurrentNotificationSoundLabel} crash sound.");
+                break;
+            case EditorMenuAction.TriggerCrashReporterTest:
+                throw new InvalidOperationException("Intentional crash reporter test triggered from the Help menu.");
         }
     }
 
@@ -1145,6 +1299,10 @@ public sealed partial class EditorWindowScene : IWindowScene
         ReplacePixelStudioDocument(CreateBlankPixelStudio(32, 32));
         _pixelStudio.DocumentName = entry.Name;
         _currentPixelDocumentPath = null;
+        _pixelUndoStack.Clear();
+        _pixelRedoStack.Clear();
+        _pixelRecoveryOwnedByCurrentSession = false;
+        ResetPixelStudioRecoveryTracking(useCurrentAsSavedBaseline: false, useCurrentAsAutosavedBaseline: false);
         OpenPage(EditorPageKind.Projects, $"Created {projectName}");
     }
 
@@ -1215,6 +1373,10 @@ public sealed partial class EditorWindowScene : IWindowScene
         ReplacePixelStudioDocument(CreateBlankPixelStudio(32, 32));
         _pixelStudio.DocumentName = entry.Name;
         _currentPixelDocumentPath = null;
+        _pixelUndoStack.Clear();
+        _pixelRedoStack.Clear();
+        _pixelRecoveryOwnedByCurrentSession = false;
+        ResetPixelStudioRecoveryTracking(useCurrentAsSavedBaseline: false, useCurrentAsAutosavedBaseline: false);
         _uiState.ProjectForm.ProjectName = $"{projectName}{suffix switch { > 1 => suffix.ToString(), _ => string.Empty }}";
         _uiState.ProjectForm.ActiveField = EditorTextField.None;
         _uiState.ProjectForm.FolderPickerVisible = false;
@@ -1467,10 +1629,27 @@ public sealed partial class EditorWindowScene : IWindowScene
             case EditorPreferenceAction.CycleColorPickerMode:
                 CycleColorPickerMode();
                 break;
+            case EditorPreferenceAction.CycleNotificationSoundMode:
+                CycleNotificationSoundMode();
+                break;
             case EditorPreferenceAction.OpenThemeStudio:
                 OpenThemeStudio();
                 break;
         }
+    }
+
+    private void UpdatePixelWarningToast()
+    {
+        _pixelWarningToastText = string.Empty;
+        _pixelWarningToastExpiresAt = DateTimeOffset.MinValue;
+        if (!_uiState.PixelStudio.WarningToastVisible && string.IsNullOrWhiteSpace(_uiState.PixelStudio.WarningToastText))
+        {
+            return;
+        }
+
+        _uiState.PixelStudio.WarningToastVisible = false;
+        _uiState.PixelStudio.WarningToastText = string.Empty;
+        _renderer?.UpdateUiState(_uiState);
     }
 
     private void SelectFolderPickerEntry(int index)

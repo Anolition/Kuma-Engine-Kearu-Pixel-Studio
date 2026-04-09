@@ -23,6 +23,10 @@ public sealed class PixelStudioViewState
 
     public int FramesPerSecond { get; set; }
 
+    public bool ShowOnionSkin { get; set; }
+
+    public float OnionOpacity { get; set; } = 0.42f;
+
     public bool IsPlaying { get; set; }
 
     public bool CanUndo { get; set; }
@@ -40,6 +44,10 @@ public sealed class PixelStudioViewState
     public ThemeColor SecondaryColor { get; set; } = new(0.0f, 0.0f, 0.0f);
 
     public float ActiveColorAlpha { get; set; } = 1.0f;
+
+    public float ActiveLayerOpacity { get; set; } = 1.0f;
+
+    public bool ActiveLayerAlphaLocked { get; set; }
 
     public string ActivePaletteName { get; set; } = "Current Palette";
 
@@ -75,6 +83,8 @@ public sealed class PixelStudioViewState
 
     public PixelStudioSelectionMode SelectionMode { get; set; } = PixelStudioSelectionMode.Box;
 
+    public bool SelectionTransformModeActive { get; set; }
+
     public int SelectionX { get; set; }
 
     public int SelectionY { get; set; }
@@ -86,6 +96,16 @@ public sealed class PixelStudioViewState
     public bool SelectionUsesMask { get; set; }
 
     public IReadOnlySet<int> SelectionMaskIndices { get; set; } = new HashSet<int>();
+
+    public bool SelectionTransformPreviewVisible { get; set; }
+
+    public int SelectionTransformPreviewX { get; set; }
+
+    public int SelectionTransformPreviewY { get; set; }
+
+    public int SelectionTransformPreviewWidth { get; set; }
+
+    public int SelectionTransformPreviewHeight { get; set; }
 
     public bool HasClipboardSelection { get; set; }
 
@@ -111,11 +131,21 @@ public sealed class PixelStudioViewState
 
     public string CanvasResizeWarningText { get; set; } = string.Empty;
 
+    public bool WarningDialogVisible { get; set; }
+
+    public string WarningDialogTitle { get; set; } = string.Empty;
+
+    public string WarningDialogMessage { get; set; } = string.Empty;
+
+    public bool WarningToastVisible { get; set; }
+
+    public string WarningToastText { get; set; } = string.Empty;
+
     public PixelStudioResizeAnchor CanvasResizeAnchor { get; set; } = PixelStudioResizeAnchor.TopLeft;
 
     public bool PromptForPaletteGenerationAfterImport { get; set; } = true;
 
-    public float ToolsPanelPreferredWidth { get; set; } = 164;
+    public float ToolsPanelPreferredWidth { get; set; } = 40;
 
     public float SidebarPreferredWidth { get; set; } = 360;
 
@@ -138,6 +168,16 @@ public sealed class PixelStudioViewState
     public float NavigatorPanelWidth { get; set; }
 
     public float NavigatorPanelHeight { get; set; }
+
+    public bool AnimationPreviewVisible { get; set; }
+
+    public float AnimationPreviewPanelOffsetX { get; set; }
+
+    public float AnimationPreviewPanelOffsetY { get; set; }
+
+    public float AnimationPreviewPanelWidth { get; set; }
+
+    public float AnimationPreviewPanelHeight { get; set; }
 
     public int PaletteSwatchScrollRow { get; set; }
 
@@ -167,9 +207,17 @@ public sealed class PixelStudioViewState
 
     public IReadOnlyList<ThemeColor?> CompositePixels { get; set; } = [];
 
+    public IReadOnlyList<ThemeColor?> OnionPreviousPixels { get; set; } = [];
+
+    public IReadOnlyList<ThemeColor?> OnionNextPixels { get; set; } = [];
+
     public IReadOnlyList<ThemeColor?> PreviewPixels { get; set; } = [];
 
     public int CompositePixelsRevision { get; set; }
+
+    public int OnionPreviousPixelsRevision { get; set; }
+
+    public int OnionNextPixelsRevision { get; set; }
 
     public int PreviewPixelsRevision { get; set; }
 
