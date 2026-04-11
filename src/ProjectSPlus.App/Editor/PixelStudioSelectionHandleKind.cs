@@ -2,8 +2,13 @@ namespace ProjectSPlus.App.Editor;
 
 public enum PixelStudioSelectionHandleKind
 {
+    Rotate,
     TopLeft,
+    Top,
     TopRight,
+    Right,
     BottomLeft,
-    BottomRight
+    Bottom,
+    BottomRight,
+    Left
 }

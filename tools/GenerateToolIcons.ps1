@@ -36,6 +36,22 @@ function Stroke-Path($graphics, $path, [float]$outlineWidth, [float]$strokeWidth
     }
 }
 
+function Fill-And-StrokePath($graphics, $path, [System.Drawing.Color]$fillColor, [float]$outlineWidth = 6, [float]$strokeWidth = 3) {
+    $brush = New-Object System.Drawing.SolidBrush($fillColor)
+    $outline = New-Pen $outlineColor $outlineWidth
+    $stroke = New-Pen $strokeColor $strokeWidth
+    try {
+        $graphics.FillPath($brush, $path)
+        $graphics.DrawPath($outline, $path)
+        $graphics.DrawPath($stroke, $path)
+    }
+    finally {
+        $brush.Dispose()
+        $outline.Dispose()
+        $stroke.Dispose()
+    }
+}
+
 function Stroke-Line($graphics, [float]$x1, [float]$y1, [float]$x2, [float]$y2, [float]$outlineWidth, [float]$strokeWidth, [System.Drawing.Color]$strokeColorValue = $strokeColor) {
     $outline = New-Pen $outlineColor $outlineWidth
     $stroke = New-Pen $strokeColorValue $strokeWidth
@@ -182,11 +198,162 @@ New-Icon "rectangle" {
     try { Stroke-Path $g $path 7 3 } finally { $path.Dispose() }
 }
 
+New-Icon "rectangle-fill" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddRectangle([System.Drawing.RectangleF]::new(14, 16, 36, 30))
+    try { Fill-And-StrokePath $g $path $accentColor 7 3 } finally { $path.Dispose() }
+}
+
 New-Icon "ellipse" {
     param($g)
     $path = New-Object System.Drawing.Drawing2D.GraphicsPath
     $path.AddEllipse([System.Drawing.RectangleF]::new(13, 17, 38, 28))
     try { Stroke-Path $g $path 7 3 } finally { $path.Dispose() }
+}
+
+New-Icon "ellipse-fill" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddEllipse([System.Drawing.RectangleF]::new(13, 17, 38, 28))
+    try { Fill-And-StrokePath $g $path $accentColor 7 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape" {
+    param($g)
+    $points = [System.Drawing.PointF[]]@(
+        [System.Drawing.PointF]::new(32, 10),
+        [System.Drawing.PointF]::new(38, 24),
+        [System.Drawing.PointF]::new(54, 25),
+        [System.Drawing.PointF]::new(42, 35),
+        [System.Drawing.PointF]::new(46, 50),
+        [System.Drawing.PointF]::new(32, 42),
+        [System.Drawing.PointF]::new(18, 50),
+        [System.Drawing.PointF]::new(22, 35),
+        [System.Drawing.PointF]::new(10, 25),
+        [System.Drawing.PointF]::new(26, 24)
+    )
+    Fill-And-StrokePolygon $g $points $accentColor
+}
+
+New-Icon "shape-star" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddPolygon([System.Drawing.PointF[]]@(
+        [System.Drawing.PointF]::new(32, 8),
+        [System.Drawing.PointF]::new(38, 23),
+        [System.Drawing.PointF]::new(54, 24),
+        [System.Drawing.PointF]::new(42, 35),
+        [System.Drawing.PointF]::new(46, 52),
+        [System.Drawing.PointF]::new(32, 42),
+        [System.Drawing.PointF]::new(18, 52),
+        [System.Drawing.PointF]::new(22, 35),
+        [System.Drawing.PointF]::new(10, 24),
+        [System.Drawing.PointF]::new(26, 23)
+    ))
+    try { Stroke-Path $g $path 6 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape-star-fill" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddPolygon([System.Drawing.PointF[]]@(
+        [System.Drawing.PointF]::new(32, 8),
+        [System.Drawing.PointF]::new(38, 23),
+        [System.Drawing.PointF]::new(54, 24),
+        [System.Drawing.PointF]::new(42, 35),
+        [System.Drawing.PointF]::new(46, 52),
+        [System.Drawing.PointF]::new(32, 42),
+        [System.Drawing.PointF]::new(18, 52),
+        [System.Drawing.PointF]::new(22, 35),
+        [System.Drawing.PointF]::new(10, 24),
+        [System.Drawing.PointF]::new(26, 23)
+    ))
+    try { Fill-And-StrokePath $g $path $accentColor 6 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape-heart" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddBezier(32, 54, 16, 42, 10, 26, 20, 18)
+    $path.AddBezier(20, 18, 26, 8, 38, 10, 32, 24)
+    $path.AddBezier(32, 24, 26, 10, 38, 8, 44, 18)
+    $path.AddBezier(44, 18, 54, 26, 48, 42, 32, 54)
+    try { Stroke-Path $g $path 6 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape-heart-fill" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddBezier(32, 54, 16, 42, 10, 26, 20, 18)
+    $path.AddBezier(20, 18, 26, 8, 38, 10, 32, 24)
+    $path.AddBezier(32, 24, 26, 10, 38, 8, 44, 18)
+    $path.AddBezier(44, 18, 54, 26, 48, 42, 32, 54)
+    try { Fill-And-StrokePath $g $path $accentColor 6 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape-teardrop" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddBezier(32, 8, 46, 18, 52, 36, 42, 50)
+    $path.AddBezier(42, 50, 38, 56, 26, 56, 22, 50)
+    $path.AddBezier(22, 50, 12, 36, 18, 18, 32, 8)
+    try { Stroke-Path $g $path 6 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape-teardrop-fill" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddBezier(32, 8, 46, 18, 52, 36, 42, 50)
+    $path.AddBezier(42, 50, 38, 56, 26, 56, 22, 50)
+    $path.AddBezier(22, 50, 12, 36, 18, 18, 32, 8)
+    try { Fill-And-StrokePath $g $path $accentColor 6 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape-triangle" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddPolygon([System.Drawing.PointF[]]@(
+        [System.Drawing.PointF]::new(32, 9),
+        [System.Drawing.PointF]::new(54, 50),
+        [System.Drawing.PointF]::new(10, 50)
+    ))
+    try { Stroke-Path $g $path 6 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape-triangle-fill" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddPolygon([System.Drawing.PointF[]]@(
+        [System.Drawing.PointF]::new(32, 9),
+        [System.Drawing.PointF]::new(54, 50),
+        [System.Drawing.PointF]::new(10, 50)
+    ))
+    try { Fill-And-StrokePath $g $path $accentColor 6 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape-diamond" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddPolygon([System.Drawing.PointF[]]@(
+        [System.Drawing.PointF]::new(32, 8),
+        [System.Drawing.PointF]::new(54, 32),
+        [System.Drawing.PointF]::new(32, 56),
+        [System.Drawing.PointF]::new(10, 32)
+    ))
+    try { Stroke-Path $g $path 6 3 } finally { $path.Dispose() }
+}
+
+New-Icon "shape-diamond-fill" {
+    param($g)
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    $path.AddPolygon([System.Drawing.PointF[]]@(
+        [System.Drawing.PointF]::new(32, 8),
+        [System.Drawing.PointF]::new(54, 32),
+        [System.Drawing.PointF]::new(32, 56),
+        [System.Drawing.PointF]::new(10, 32)
+    ))
+    try { Fill-And-StrokePath $g $path $accentColor 6 3 } finally { $path.Dispose() }
 }
 
 New-Icon "fill" {

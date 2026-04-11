@@ -47,6 +47,49 @@ public sealed partial class EditorWindowScene
         Alpha
     }
 
+    private readonly struct PixelStudioEditorToolState
+    {
+        public PixelStudioEditorToolState(
+            PixelStudioToolKind activeTool,
+            int brushSize,
+            int activePaletteIndex,
+            PixelStudioSelectionMode selectionMode,
+            PixelStudioMirrorMode mirrorMode,
+            PixelStudioShapeRenderMode rectangleRenderMode,
+            PixelStudioShapeRenderMode ellipseRenderMode,
+            PixelStudioShapePreset shapePreset,
+            PixelStudioShapeRenderMode shapeRenderMode)
+        {
+            ActiveTool = activeTool;
+            BrushSize = brushSize;
+            ActivePaletteIndex = activePaletteIndex;
+            SelectionMode = selectionMode;
+            MirrorMode = mirrorMode;
+            RectangleRenderMode = rectangleRenderMode;
+            EllipseRenderMode = ellipseRenderMode;
+            ShapePreset = shapePreset;
+            ShapeRenderMode = shapeRenderMode;
+        }
+
+        public PixelStudioToolKind ActiveTool { get; }
+
+        public int BrushSize { get; }
+
+        public int ActivePaletteIndex { get; }
+
+        public PixelStudioSelectionMode SelectionMode { get; }
+
+        public PixelStudioMirrorMode MirrorMode { get; }
+
+        public PixelStudioShapeRenderMode RectangleRenderMode { get; }
+
+        public PixelStudioShapeRenderMode EllipseRenderMode { get; }
+
+        public PixelStudioShapePreset ShapePreset { get; }
+
+        public PixelStudioShapeRenderMode ShapeRenderMode { get; }
+    }
+
     private enum NavigatorResizeCorner
     {
         None,
@@ -68,7 +111,8 @@ public sealed partial class EditorWindowScene
         None,
         ResizeCanvas,
         ScaleSelectionUp,
-        ScaleSelectionDown
+        ScaleSelectionDown,
+        HiddenLayerEdit
     }
 
     private static readonly JsonSerializerOptions PixelStudioDocumentSerializerOptions = new()
@@ -80,6 +124,35 @@ public sealed partial class EditorWindowScene
             new JsonStringEnumConverter()
         }
     };
+
+    private static readonly (float X, float Y)[] StarPolygonPoints = BuildRegularStarPolygon(5, 0.98f, 0.42f, -MathF.PI * 0.5f);
+    private static readonly (float X, float Y)[] TrianglePolygonPoints =
+    [
+        (0f, -0.98f),
+        (0.92f, 0.86f),
+        (-0.92f, 0.86f)
+    ];
+    private static readonly (float X, float Y)[] DiamondPolygonPoints =
+    [
+        (0f, -0.98f),
+        (0.92f, 0f),
+        (0f, 0.98f),
+        (-0.92f, 0f)
+    ];
+    private static readonly (float X, float Y)[] TeardropPolygonPoints =
+    [
+        (0f, -1f),
+        (0.28f, -0.72f),
+        (0.55f, -0.18f),
+        (0.58f, 0.36f),
+        (0.34f, 0.84f),
+        (0f, 1f),
+        (-0.34f, 0.84f),
+        (-0.58f, 0.36f),
+        (-0.55f, -0.18f),
+        (-0.28f, -0.72f)
+    ];
+    private static readonly (float X, float Y)[] HeartPolygonPoints = BuildHeartPolygonPoints();
 
     private readonly Stack<PixelStudioState> _pixelUndoStack = [];
     private readonly Stack<PixelStudioState> _pixelRedoStack = [];
@@ -97,7 +170,7 @@ public sealed partial class EditorWindowScene
     private int? _contextLayerIndex;
     private int? _contextFrameIndex;
     private bool _contextSelectionActive;
-    private bool _contextSelectionToolActive;
+    private PixelStudioToolKind? _contextToolMenuTool;
     private string? _currentPixelDocumentPath;
     private string? _pixelStudioLastSavedSnapshotJson;
     private string? _pixelStudioLastAutosavedSnapshotJson;
@@ -137,7 +210,13 @@ public sealed partial class EditorWindowScene
     private int _selectionClipboardWidth;
     private int _selectionClipboardHeight;
     private PixelStudioSelectionMode _selectionMode = PixelStudioSelectionMode.Box;
+    private PixelStudioMirrorMode _mirrorMode;
+    private PixelStudioShapeRenderMode _rectangleRenderMode = PixelStudioShapeRenderMode.Outline;
+    private PixelStudioShapeRenderMode _ellipseRenderMode = PixelStudioShapeRenderMode.Outline;
+    private PixelStudioShapePreset _shapePreset = PixelStudioShapePreset.Star;
+    private PixelStudioShapeRenderMode _shapeRenderMode = PixelStudioShapeRenderMode.Outline;
     private bool _selectionTransformModeActive;
+    private bool _layerOpacityControlsVisible;
     private int _selectionMaskLeft;
     private int _selectionMaskTop;
     private int _selectionMaskRight;
@@ -215,6 +294,7 @@ public sealed partial class EditorWindowScene
     private int _selectionTransformPreviewTop;
     private int _selectionTransformPreviewWidth;
     private int _selectionTransformPreviewHeight;
+    private float _selectionTransformPreviewRotationDegrees;
     private bool _selectionTransformPreviewVisible;
 
     private bool HandlePixelStudioKeyDown(IKeyboard keyboard, Key key)
@@ -370,9 +450,9 @@ public sealed partial class EditorWindowScene
             }
 
             ActionRect<PixelStudioToolKind>? toolContextButton = layout.ToolButtons.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
-            if (toolContextButton is not null && toolContextButton.Action == PixelStudioToolKind.Select)
+            if (toolContextButton is not null && SupportsToolContextMenu(toolContextButton.Action))
             {
-                OpenSelectionToolContextMenu(mouseX, mouseY);
+                OpenToolContextMenu(toolContextButton.Action, mouseX, mouseY);
                 return true;
             }
 
@@ -709,10 +789,16 @@ public sealed partial class EditorWindowScene
         if (_pixelStudio.ActiveTool == PixelStudioToolKind.Hand && layout.CanvasClipRect.Contains(mouseX, mouseY))
         {
             ClosePixelContextMenu();
-            if (TryGetCanvasCellCoordinates(layout, mouseX, mouseY, out int handCellX, out int handCellY, clampToCanvas: true)
+            if (!_selectionTransformModeActive
+                && TryGetCanvasCellCoordinates(layout, mouseX, mouseY, out int handCellX, out int handCellY, clampToCanvas: true)
                 && _selectionCommitted
                 && IsWithinCurrentSelection(handCellX, handCellY))
             {
+                if (!EnsureCurrentLayerVisibleForEditing("moving the selection"))
+                {
+                    return true;
+                }
+
                 if (CurrentPixelLayer.IsLocked)
                 {
                     RefreshPixelStudioView("Unlock the active layer before moving the selection.");
@@ -954,7 +1040,7 @@ public sealed partial class EditorWindowScene
             _shiftPressed = keyboard.IsKeyPressed(Key.ShiftLeft) || keyboard.IsKeyPressed(Key.ShiftRight);
         }
 
-        if (_isPixelStrokeActive && _pixelStudio.ActiveTool == PixelStudioToolKind.Ellipse)
+        if (_isPixelStrokeActive && SupportsConstrainedShapePreview(_pixelStudio.ActiveTool))
         {
             if (_layoutSnapshot?.PixelStudio is { } pixelLayout
                 && TryGetCanvasCellCoordinates(pixelLayout, _pixelMouseX, _pixelMouseY, out int previewX, out int previewY, clampToCanvas: true))
@@ -965,6 +1051,13 @@ public sealed partial class EditorWindowScene
             {
                 RefreshPixelStudioInteraction();
             }
+        }
+
+        if (_pixelDragMode == PixelStudioDragMode.TransformSelection
+            && _selectionTransformHandleKind == PixelStudioSelectionHandleKind.Rotate
+            && _layoutSnapshot?.PixelStudio is { } transformLayout)
+        {
+            UpdateSelectionTransformPreview(transformLayout, _pixelMouseX, _pixelMouseY);
         }
     }
 
@@ -1202,6 +1295,11 @@ public sealed partial class EditorWindowScene
                 return true;
         }
 
+        if (!EnsureCurrentLayerVisibleForEditing("editing"))
+        {
+            return true;
+        }
+
         if (CurrentPixelLayer.IsLocked)
         {
             RefreshPixelStudioView("Unlock the active layer before editing.");
@@ -1222,6 +1320,7 @@ public sealed partial class EditorWindowScene
                 return true;
             case PixelStudioToolKind.Rectangle:
             case PixelStudioToolKind.Ellipse:
+            case PixelStudioToolKind.Shape:
                 BeginPixelStroke();
                 _strokeAnchorCellIndex = cellIndex;
                 PreviewShapeStroke(cellIndex);
@@ -1286,7 +1385,8 @@ public sealed partial class EditorWindowScene
 
         if ((_pixelStudio.ActiveTool == PixelStudioToolKind.Line
                 || _pixelStudio.ActiveTool == PixelStudioToolKind.Rectangle
-                || _pixelStudio.ActiveTool == PixelStudioToolKind.Ellipse)
+                || _pixelStudio.ActiveTool == PixelStudioToolKind.Ellipse
+                || _pixelStudio.ActiveTool == PixelStudioToolKind.Shape)
             && _strokeAnchorCellIndex >= 0
             && _strokeSnapshot is not null)
         {
@@ -1328,6 +1428,7 @@ public sealed partial class EditorWindowScene
         int nextValue = _pixelStudio.ActiveTool == PixelStudioToolKind.Eraser
             ? -1
             : _pixelStudio.ActivePaletteIndex;
+        HashSet<int> targetIndices = [];
 
         for (int offsetY = -radius; offsetY <= radius; offsetY++)
         {
@@ -1340,26 +1441,85 @@ public sealed partial class EditorWindowScene
 
                 int x = centerX + offsetX;
                 int y = centerY + offsetY;
-                if (!IsWithinCanvas(x, y) || !IsWithinSelection(x, y))
-                {
-                    continue;
-                }
+                AddMirroredBrushTargets(targetIndices, x, y);
+            }
+        }
 
-                int cellIndex = (y * _pixelStudio.CanvasWidth) + x;
-                if (CurrentPixelLayer.Pixels[cellIndex] == nextValue)
-                {
-                    continue;
-                }
+        foreach (int cellIndex in targetIndices)
+        {
+            if (CurrentPixelLayer.Pixels[cellIndex] == nextValue)
+            {
+                continue;
+            }
 
-                if (TryWritePixelToCurrentLayer(cellIndex, nextValue))
-                {
-                    _strokeChanged = true;
-                    _pixelDirtyIndices.Add(cellIndex);
-                }
+            if (TryWritePixelToCurrentLayer(cellIndex, nextValue))
+            {
+                _strokeChanged = true;
+                _pixelDirtyIndices.Add(cellIndex);
             }
         }
 
         _lastStrokeCellIndex = centerCellIndex;
+    }
+
+    private void ApplyShapeCell(int centerCellIndex)
+    {
+        int centerX = centerCellIndex % _pixelStudio.CanvasWidth;
+        int centerY = centerCellIndex / _pixelStudio.CanvasWidth;
+        int nextValue = _pixelStudio.ActiveTool == PixelStudioToolKind.Eraser
+            ? -1
+            : _pixelStudio.ActivePaletteIndex;
+        HashSet<int> targetIndices = [];
+
+        AddMirroredBrushTargets(targetIndices, centerX, centerY);
+
+        foreach (int cellIndex in targetIndices)
+        {
+            if (CurrentPixelLayer.Pixels[cellIndex] == nextValue)
+            {
+                continue;
+            }
+
+            if (TryWritePixelToCurrentLayer(cellIndex, nextValue))
+            {
+                _strokeChanged = true;
+                _pixelDirtyIndices.Add(cellIndex);
+            }
+        }
+
+        _lastStrokeCellIndex = centerCellIndex;
+    }
+
+    private void AddMirroredBrushTargets(HashSet<int> targetIndices, int x, int y)
+    {
+        AddBrushTarget(targetIndices, x, y);
+
+        bool mirrorHorizontal = _mirrorMode is PixelStudioMirrorMode.Horizontal or PixelStudioMirrorMode.Both;
+        bool mirrorVertical = _mirrorMode is PixelStudioMirrorMode.Vertical or PixelStudioMirrorMode.Both;
+        if (mirrorHorizontal)
+        {
+            AddBrushTarget(targetIndices, (_pixelStudio.CanvasWidth - 1) - x, y);
+        }
+
+        if (mirrorVertical)
+        {
+            AddBrushTarget(targetIndices, x, (_pixelStudio.CanvasHeight - 1) - y);
+        }
+
+        if (mirrorHorizontal && mirrorVertical)
+        {
+            AddBrushTarget(targetIndices, (_pixelStudio.CanvasWidth - 1) - x, (_pixelStudio.CanvasHeight - 1) - y);
+        }
+    }
+
+    private void AddBrushTarget(HashSet<int> targetIndices, int x, int y)
+    {
+        if (!IsWithinCanvas(x, y) || !IsWithinSelection(x, y))
+        {
+            return;
+        }
+
+        targetIndices.Add((y * _pixelStudio.CanvasWidth) + x);
     }
 
     private void PreviewLineStroke(int targetCellIndex)
@@ -1418,12 +1578,10 @@ public sealed partial class EditorWindowScene
         _linePreviewIndices.Clear();
         _strokeChanged = false;
         targetCellIndex = ResolveShapeTargetCellIndex(targetCellIndex);
-        IEnumerable<int> shapeCells = _pixelStudio.ActiveTool == PixelStudioToolKind.Rectangle
-            ? EnumerateRectangleOutlineCells(_strokeAnchorCellIndex, targetCellIndex)
-            : EnumerateEllipseOutlineCells(_strokeAnchorCellIndex, targetCellIndex);
+        IEnumerable<int> shapeCells = EnumerateActiveShapeCells(_strokeAnchorCellIndex, targetCellIndex);
         foreach (int cellIndex in shapeCells)
         {
-            ApplyBrushStamp(cellIndex);
+            ApplyShapeCell(cellIndex);
         }
 
         _linePreviewIndices.UnionWith(_pixelDirtyIndices);
@@ -1436,7 +1594,7 @@ public sealed partial class EditorWindowScene
 
     private int ResolveShapeTargetCellIndex(int targetCellIndex)
     {
-        if (_pixelStudio.ActiveTool != PixelStudioToolKind.Ellipse || !_shiftPressed || _strokeAnchorCellIndex < 0)
+        if (!SupportsConstrainedShapePreview(_pixelStudio.ActiveTool) || !_shiftPressed || _strokeAnchorCellIndex < 0)
         {
             return targetCellIndex;
         }
@@ -1453,6 +1611,21 @@ public sealed partial class EditorWindowScene
         int resolvedX = Math.Clamp(startX + (directionX * dominantDistance), 0, _pixelStudio.CanvasWidth - 1);
         int resolvedY = Math.Clamp(startY + (directionY * dominantDistance), 0, _pixelStudio.CanvasHeight - 1);
         return (resolvedY * _pixelStudio.CanvasWidth) + resolvedX;
+    }
+
+    private IEnumerable<int> EnumerateActiveShapeCells(int startCellIndex, int endCellIndex)
+    {
+        return _pixelStudio.ActiveTool switch
+        {
+            PixelStudioToolKind.Rectangle => _rectangleRenderMode == PixelStudioShapeRenderMode.Filled
+                ? EnumerateRectangleFilledCells(startCellIndex, endCellIndex)
+                : EnumerateRectangleOutlineCells(startCellIndex, endCellIndex),
+            PixelStudioToolKind.Ellipse => _ellipseRenderMode == PixelStudioShapeRenderMode.Filled
+                ? EnumerateEllipseFilledCells(startCellIndex, endCellIndex)
+                : EnumerateEllipseOutlineCells(startCellIndex, endCellIndex),
+            PixelStudioToolKind.Shape => EnumeratePresetShapeCells(startCellIndex, endCellIndex),
+            _ => []
+        };
     }
 
     private IEnumerable<int> EnumerateRectangleOutlineCells(int startCellIndex, int endCellIndex)
@@ -1479,6 +1652,28 @@ public sealed partial class EditorWindowScene
         }
 
         return outline;
+    }
+
+    private IEnumerable<int> EnumerateRectangleFilledCells(int startCellIndex, int endCellIndex)
+    {
+        int startX = startCellIndex % _pixelStudio.CanvasWidth;
+        int startY = startCellIndex / _pixelStudio.CanvasWidth;
+        int endX = endCellIndex % _pixelStudio.CanvasWidth;
+        int endY = endCellIndex / _pixelStudio.CanvasWidth;
+        int left = Math.Min(startX, endX);
+        int right = Math.Max(startX, endX);
+        int top = Math.Min(startY, endY);
+        int bottom = Math.Max(startY, endY);
+        List<int> filled = [];
+        for (int y = top; y <= bottom; y++)
+        {
+            for (int x = left; x <= right; x++)
+            {
+                filled.Add((y * _pixelStudio.CanvasWidth) + x);
+            }
+        }
+
+        return filled;
     }
 
     private IEnumerable<int> EnumerateEllipseOutlineCells(int startCellIndex, int endCellIndex)
@@ -1523,6 +1718,288 @@ public sealed partial class EditorWindowScene
         return outline;
     }
 
+    private IEnumerable<int> EnumerateEllipseFilledCells(int startCellIndex, int endCellIndex)
+    {
+        int startX = startCellIndex % _pixelStudio.CanvasWidth;
+        int startY = startCellIndex / _pixelStudio.CanvasWidth;
+        int endX = endCellIndex % _pixelStudio.CanvasWidth;
+        int endY = endCellIndex / _pixelStudio.CanvasWidth;
+        int left = Math.Min(startX, endX);
+        int right = Math.Max(startX, endX);
+        int top = Math.Min(startY, endY);
+        int bottom = Math.Max(startY, endY);
+        int width = Math.Max(right - left + 1, 1);
+        int height = Math.Max(bottom - top + 1, 1);
+        if (width <= 2 || height <= 2)
+        {
+            return EnumerateRectangleFilledCells(startCellIndex, endCellIndex);
+        }
+
+        float radiusX = width * 0.5f;
+        float radiusY = height * 0.5f;
+        float centerX = left + radiusX;
+        float centerY = top + radiusY;
+        List<int> filled = [];
+        for (int y = top; y <= bottom; y++)
+        {
+            for (int x = left; x <= right; x++)
+            {
+                if (IsEllipseCellInside(x, y, centerX, centerY, radiusX, radiusY))
+                {
+                    filled.Add((y * _pixelStudio.CanvasWidth) + x);
+                }
+            }
+        }
+
+        return filled;
+    }
+
+    private IEnumerable<int> EnumeratePresetShapeCells(int startCellIndex, int endCellIndex)
+    {
+        HashSet<int> filledCells = BuildPresetShapeFilledSet(startCellIndex, endCellIndex);
+        if (_shapeRenderMode == PixelStudioShapeRenderMode.Filled)
+        {
+            return filledCells;
+        }
+
+        return BuildPresetShapeOutlineSet(startCellIndex, endCellIndex);
+    }
+
+    private HashSet<int> BuildPresetShapeFilledSet(int startCellIndex, int endCellIndex)
+    {
+        GetShapeBounds(startCellIndex, endCellIndex, out int left, out int right, out int top, out int bottom, out int width, out int height);
+        HashSet<int> filled = [];
+        if (width <= 0 || height <= 0)
+        {
+            return filled;
+        }
+
+        (float X, float Y)[] polygon = BuildScaledPresetShapePolygon(startCellIndex, endCellIndex);
+        if (polygon.Length == 0)
+        {
+            return filled;
+        }
+
+        foreach (int index in BuildPresetShapeOutlineSet(startCellIndex, endCellIndex))
+        {
+            filled.Add(index);
+        }
+
+        for (int y = top; y <= bottom; y++)
+        {
+            float scanY = y + 0.5f;
+            List<float> intersections = [];
+            for (int index = 0; index < polygon.Length; index++)
+            {
+                (float X, float Y) from = polygon[index];
+                (float X, float Y) to = polygon[(index + 1) % polygon.Length];
+                bool crossesScanline =
+                    (from.Y <= scanY && to.Y > scanY)
+                    || (to.Y <= scanY && from.Y > scanY);
+                if (!crossesScanline)
+                {
+                    continue;
+                }
+
+                float intersectionX = from.X + (((scanY - from.Y) / (to.Y - from.Y)) * (to.X - from.X));
+                intersections.Add(intersectionX);
+            }
+
+            intersections.Sort();
+            for (int index = 0; index + 1 < intersections.Count; index += 2)
+            {
+                int startX = Math.Clamp((int)MathF.Ceiling(intersections[index] - 0.5f), left, right);
+                int endX = Math.Clamp((int)MathF.Floor(intersections[index + 1] - 0.5f), left, right);
+                for (int x = startX; x <= endX; x++)
+                {
+                    filled.Add((y * _pixelStudio.CanvasWidth) + x);
+                }
+            }
+        }
+
+        return filled;
+    }
+
+    private IEnumerable<int> BuildPresetShapeOutlineSet(int startCellIndex, int endCellIndex)
+    {
+        (float X, float Y)[] polygon = BuildScaledPresetShapePolygon(startCellIndex, endCellIndex);
+        if (polygon.Length == 0)
+        {
+            return [];
+        }
+
+        HashSet<int> outline = [];
+        for (int index = 0; index < polygon.Length; index++)
+        {
+            (float X, float Y) from = polygon[index];
+            (float X, float Y) to = polygon[(index + 1) % polygon.Length];
+            int fromX = Math.Clamp((int)MathF.Round(from.X - 0.5f), 0, _pixelStudio.CanvasWidth - 1);
+            int fromY = Math.Clamp((int)MathF.Round(from.Y - 0.5f), 0, _pixelStudio.CanvasHeight - 1);
+            int toX = Math.Clamp((int)MathF.Round(to.X - 0.5f), 0, _pixelStudio.CanvasWidth - 1);
+            int toY = Math.Clamp((int)MathF.Round(to.Y - 0.5f), 0, _pixelStudio.CanvasHeight - 1);
+            int fromCellIndex = (fromY * _pixelStudio.CanvasWidth) + fromX;
+            int toCellIndex = (toY * _pixelStudio.CanvasWidth) + toX;
+            foreach (int cellIndex in EnumerateStrokeCells(fromCellIndex, toCellIndex))
+            {
+                outline.Add(cellIndex);
+            }
+        }
+
+        return outline;
+    }
+
+    private static bool IsWithinPresetShape(PixelStudioShapePreset preset, float normalizedX, float normalizedY)
+    {
+        return preset switch
+        {
+            PixelStudioShapePreset.Heart => IsWithinHeartShape(normalizedX, normalizedY),
+            PixelStudioShapePreset.Teardrop => IsWithinTeardropShape(normalizedX, normalizedY),
+            PixelStudioShapePreset.Triangle => IsPointInPolygon(TrianglePolygonPoints, normalizedX, normalizedY),
+            PixelStudioShapePreset.Diamond => IsPointInPolygon(DiamondPolygonPoints, normalizedX, normalizedY),
+            _ => IsWithinStarShape(normalizedX, normalizedY)
+        };
+    }
+
+    private static bool IsWithinHeartShape(float normalizedX, float normalizedY)
+    {
+        return IsPointInPolygon(HeartPolygonPoints, normalizedX, normalizedY);
+    }
+
+    private static bool IsWithinTeardropShape(float normalizedX, float normalizedY)
+    {
+        return IsPointInPolygon(TeardropPolygonPoints, normalizedX, normalizedY);
+    }
+
+    private static bool IsWithinStarShape(float normalizedX, float normalizedY)
+    {
+        return IsPointInPolygon(StarPolygonPoints, normalizedX, normalizedY);
+    }
+
+    private (float X, float Y)[] BuildScaledPresetShapePolygon(int startCellIndex, int endCellIndex)
+    {
+        GetShapeBounds(startCellIndex, endCellIndex, out int left, out int right, out int top, out int bottom, out int width, out int height);
+        (float X, float Y)[]? normalizedPolygon = GetPresetShapePolygon(_shapePreset);
+        if (normalizedPolygon is null || normalizedPolygon.Length == 0)
+        {
+            return [];
+        }
+
+        float widthSpan = Math.Max(width - 1, 0);
+        float heightSpan = Math.Max(height - 1, 0);
+        (float X, float Y)[] scaled = new (float X, float Y)[normalizedPolygon.Length];
+        for (int index = 0; index < normalizedPolygon.Length; index++)
+        {
+            (float normalizedX, float normalizedY) = normalizedPolygon[index];
+            float x = left + 0.5f + (((normalizedX + 1f) * 0.5f) * widthSpan);
+            float y = top + 0.5f + (((normalizedY + 1f) * 0.5f) * heightSpan);
+            scaled[index] = (x, y);
+        }
+
+        return scaled;
+    }
+
+    private static (float X, float Y)[]? GetPresetShapePolygon(PixelStudioShapePreset preset)
+    {
+        return preset switch
+        {
+            PixelStudioShapePreset.Star => StarPolygonPoints,
+            PixelStudioShapePreset.Heart => HeartPolygonPoints,
+            PixelStudioShapePreset.Teardrop => TeardropPolygonPoints,
+            PixelStudioShapePreset.Triangle => TrianglePolygonPoints,
+            PixelStudioShapePreset.Diamond => DiamondPolygonPoints,
+            _ => null
+        };
+    }
+
+    private static bool IsPointInPolygon((float X, float Y)[] polygon, float x, float y)
+    {
+        bool inside = false;
+        for (int i = 0, j = polygon.Length - 1; i < polygon.Length; j = i++)
+        {
+            (float ix, float iy) = polygon[i];
+            (float jx, float jy) = polygon[j];
+            bool intersects = ((iy > y) != (jy > y))
+                && (x < ((jx - ix) * (y - iy) / MathF.Max(jy - iy, 0.0001f)) + ix);
+            if (intersects)
+            {
+                inside = !inside;
+            }
+        }
+
+        return inside;
+    }
+
+    private static (float X, float Y)[] BuildRegularStarPolygon(int points, float outerRadius, float innerRadius, float startAngle)
+    {
+        (float X, float Y)[] polygon = new (float X, float Y)[points * 2];
+        for (int index = 0; index < polygon.Length; index++)
+        {
+            float angle = startAngle + (index * MathF.PI / points);
+            float radius = index % 2 == 0 ? outerRadius : innerRadius;
+            polygon[index] = (MathF.Cos(angle) * radius, MathF.Sin(angle) * radius);
+        }
+
+        return polygon;
+    }
+
+    private static (float X, float Y)[] BuildHeartPolygonPoints()
+    {
+        List<(float X, float Y)> points = [];
+        for (int index = 0; index < 72; index++)
+        {
+            float t = index / 72f * MathF.PI * 2f;
+            float x = 16f * MathF.Pow(MathF.Sin(t), 3f);
+            float y = 13f * MathF.Cos(t) - (5f * MathF.Cos(2f * t)) - (2f * MathF.Cos(3f * t)) - MathF.Cos(4f * t);
+            points.Add((x, -y));
+        }
+
+        return NormalizePolygonPoints(points);
+    }
+
+    private static (float X, float Y)[] NormalizePolygonPoints(IReadOnlyList<(float X, float Y)> points)
+    {
+        float minX = points.Min(point => point.X);
+        float maxX = points.Max(point => point.X);
+        float minY = points.Min(point => point.Y);
+        float maxY = points.Max(point => point.Y);
+        float centerX = (minX + maxX) * 0.5f;
+        float centerY = (minY + maxY) * 0.5f;
+        float scaleX = MathF.Max((maxX - minX) * 0.5f, 0.0001f);
+        float scaleY = MathF.Max((maxY - minY) * 0.5f, 0.0001f);
+        float scale = MathF.Max(scaleX, scaleY);
+        return points
+            .Select(point => (((point.X - centerX) / scale) * 0.96f, ((point.Y - centerY) / scale) * 0.96f))
+            .ToArray();
+    }
+
+    private void GetShapeBounds(
+        int startCellIndex,
+        int endCellIndex,
+        out int left,
+        out int right,
+        out int top,
+        out int bottom,
+        out int width,
+        out int height)
+    {
+        int startX = startCellIndex % _pixelStudio.CanvasWidth;
+        int startY = startCellIndex / _pixelStudio.CanvasWidth;
+        int endX = endCellIndex % _pixelStudio.CanvasWidth;
+        int endY = endCellIndex / _pixelStudio.CanvasWidth;
+        left = Math.Min(startX, endX);
+        right = Math.Max(startX, endX);
+        top = Math.Min(startY, endY);
+        bottom = Math.Max(startY, endY);
+        width = Math.Max(right - left + 1, 1);
+        height = Math.Max(bottom - top + 1, 1);
+    }
+
+    private static bool SupportsConstrainedShapePreview(PixelStudioToolKind tool)
+        => tool is PixelStudioToolKind.Rectangle or PixelStudioToolKind.Ellipse or PixelStudioToolKind.Shape;
+
+    private static bool SupportsToolContextMenu(PixelStudioToolKind tool)
+        => tool is PixelStudioToolKind.Select or PixelStudioToolKind.Rectangle or PixelStudioToolKind.Ellipse or PixelStudioToolKind.Shape;
+
     private static bool IsEllipseCellInside(int x, int y, float centerX, float centerY, float radiusX, float radiusY)
     {
         if (radiusX <= 0f || radiusY <= 0f)
@@ -1562,6 +2039,12 @@ public sealed partial class EditorWindowScene
     {
         int x = cellIndex % _pixelStudio.CanvasWidth;
         int y = cellIndex / _pixelStudio.CanvasWidth;
+
+        if (_selectionTransformModeActive)
+        {
+            RefreshPixelStudioView("Transform mode is active. Use the transform handles, press Enter to apply, or Esc to cancel.");
+            return;
+        }
 
         if (_selectionCommitted && !_selectionDragActive && IsWithinCurrentSelection(x, y))
         {
@@ -1887,6 +2370,12 @@ public sealed partial class EditorWindowScene
             ClearSelection();
         }
 
+        if (tool != PixelStudioToolKind.Select && _selectionTransformModeActive)
+        {
+            _selectionTransformModeActive = false;
+            ClearSelectionTransformPreview();
+        }
+
         _pixelStudio.ActiveTool = tool;
         RefreshPixelStudioView($"{EditorBranding.PixelToolName} tool: {GetPixelStudioToolStatusLabel(tool)}.");
     }
@@ -1958,9 +2447,14 @@ public sealed partial class EditorWindowScene
                     break;
                 }
 
+                _pixelStudio.ActiveTool = PixelStudioToolKind.Select;
                 _selectionTransformModeActive = !_selectionTransformModeActive;
                 ClearSelectionTransformPreview();
-                RefreshPixelStudioView(_selectionTransformModeActive ? "Transform handles enabled." : "Transform handles hidden.", rebuildLayout: true);
+                RefreshPixelStudioView(
+                    _selectionTransformModeActive
+                        ? $"Transform enabled. Drag handles to scale, drag the top grip to rotate, hold Shift to snap to {_transformRotationSnapDegrees} deg, Enter to apply, Esc to cancel."
+                        : "Transform handles hidden.",
+                    rebuildLayout: true);
                 break;
             case PixelStudioAction.CopySelection:
                 CopySelectionPixels();
@@ -2083,6 +2577,10 @@ public sealed partial class EditorWindowScene
                 _pixelStudio.ShowGrid = !_pixelStudio.ShowGrid;
                 RefreshPixelStudioView(_pixelStudio.ShowGrid ? $"{EditorBranding.PixelToolName} grid enabled." : $"{EditorBranding.PixelToolName} grid hidden.");
                 break;
+            case PixelStudioAction.CycleMirrorMode:
+                _mirrorMode = GetNextMirrorMode(_mirrorMode);
+                RefreshPixelStudioView(BuildMirrorModeStatusText());
+                break;
             case PixelStudioAction.FitCanvas:
                 FitCanvasToViewport();
                 break;
@@ -2177,6 +2675,10 @@ public sealed partial class EditorWindowScene
                 break;
             case PixelStudioAction.AddLayer:
                 AddPixelLayer();
+                break;
+            case PixelStudioAction.ToggleLayerOpacityControls:
+                _layerOpacityControlsVisible = !_layerOpacityControlsVisible;
+                RefreshPixelStudioView(_layerOpacityControlsVisible ? "Layer opacity controls shown." : "Layer opacity controls hidden.", rebuildLayout: true);
                 break;
             case PixelStudioAction.ToggleLayerAlphaLock:
                 TogglePixelLayerAlphaLock(_pixelStudio.ActiveLayerIndex);
@@ -3612,6 +4114,169 @@ public sealed partial class EditorWindowScene
         _renderer?.UpdateLayoutSnapshot(_layoutSnapshot);
     }
 
+    private void SyncSelectionTransformUiState()
+    {
+        if (_uiState.PixelStudio is null)
+        {
+            return;
+        }
+
+        _uiState.PixelStudio.HasSelection = _selectionActive;
+        _uiState.PixelStudio.SelectionTransformModeActive = _selectionTransformModeActive;
+        _uiState.PixelStudio.SelectionX = Math.Min(_selectionStartX, _selectionEndX);
+        _uiState.PixelStudio.SelectionY = Math.Min(_selectionStartY, _selectionEndY);
+        _uiState.PixelStudio.SelectionWidth = _selectionActive ? GetSelectionWidth() : 0;
+        _uiState.PixelStudio.SelectionHeight = _selectionActive ? GetSelectionHeight() : 0;
+        _uiState.PixelStudio.SelectionUsesMask = SelectionUsesMask();
+        _uiState.PixelStudio.SelectionMaskIndices = SelectionUsesMask() ? _selectionMask : new HashSet<int>();
+        _uiState.PixelStudio.SelectionTransformPreviewVisible = _selectionTransformPreviewVisible;
+        _uiState.PixelStudio.SelectionTransformPreviewX = _selectionTransformPreviewLeft;
+        _uiState.PixelStudio.SelectionTransformPreviewY = _selectionTransformPreviewTop;
+        _uiState.PixelStudio.SelectionTransformPreviewWidth = _selectionTransformPreviewWidth;
+        _uiState.PixelStudio.SelectionTransformPreviewHeight = _selectionTransformPreviewHeight;
+        _uiState.PixelStudio.SelectionTransformPreviewRotationDegrees = _selectionTransformPreviewRotationDegrees;
+    }
+
+    private void RefreshSelectionTransformOverlay(PixelStudioLayoutSnapshot? layout = null)
+    {
+        EnsurePixelStudioIndices();
+        if (_uiState.PixelStudio is null)
+        {
+            return;
+        }
+
+        SyncSelectionTransformUiState();
+        PixelStudioLayoutSnapshot? currentLayout = layout ?? _layoutSnapshot?.PixelStudio;
+        if (currentLayout is not null)
+        {
+            EditorLayoutEngine.BuildSelectionTransformOverlay(
+                _uiState.PixelStudio,
+                currentLayout.CanvasViewportRect,
+                currentLayout.CanvasCellSize,
+                out UiRect? previewRect,
+                out List<PixelStudioSelectionHandleRect> handleRects);
+            ReplacePixelStudioLayoutSnapshot(currentLayout.WithSelectionTransformOverlay(previewRect, handleRects));
+        }
+
+        _renderer?.UpdateUiState(_uiState);
+    }
+
+    private static float NormalizeTransformRotationDegrees(float degrees)
+    {
+        float normalized = degrees % 360f;
+        if (normalized > 180f)
+        {
+            normalized -= 360f;
+        }
+        else if (normalized <= -180f)
+        {
+            normalized += 360f;
+        }
+
+        return normalized;
+    }
+
+    private float SnapSelectionTransformRotationDegrees(float degrees)
+    {
+        float normalized = NormalizeTransformRotationDegrees(degrees);
+        if (!_shiftPressed)
+        {
+            return normalized;
+        }
+
+        int snap = Math.Max(_transformRotationSnapDegrees, 1);
+        return NormalizeTransformRotationDegrees(MathF.Round(normalized / snap) * snap);
+    }
+
+    private static void RotateClockwise(float x, float y, float centerX, float centerY, float cos, float sin, out float rotatedX, out float rotatedY)
+    {
+        float dx = x - centerX;
+        float dy = y - centerY;
+        rotatedX = centerX + (dx * cos) - (dy * sin);
+        rotatedY = centerY + (dx * sin) + (dy * cos);
+    }
+
+    private static void InverseRotateClockwise(float x, float y, float centerX, float centerY, float cos, float sin, out float rotatedX, out float rotatedY)
+    {
+        float dx = x - centerX;
+        float dy = y - centerY;
+        rotatedX = centerX + (dx * cos) + (dy * sin);
+        rotatedY = centerY - (dx * sin) + (dy * cos);
+    }
+
+    private static void ComputeRotatedSelectionTargetBounds(
+        int sourceLeft,
+        int sourceTop,
+        int sourceWidth,
+        int sourceHeight,
+        float angleDegrees,
+        out int targetLeft,
+        out int targetTop,
+        out int targetWidth,
+        out int targetHeight)
+    {
+        float centerX = sourceLeft + (sourceWidth * 0.5f);
+        float centerY = sourceTop + (sourceHeight * 0.5f);
+        float radians = angleDegrees * (MathF.PI / 180f);
+        float cos = MathF.Cos(radians);
+        float sin = MathF.Sin(radians);
+        float[] cornerXs =
+        [
+            sourceLeft,
+            sourceLeft + sourceWidth,
+            sourceLeft + sourceWidth,
+            sourceLeft
+        ];
+        float[] cornerYs =
+        [
+            sourceTop,
+            sourceTop,
+            sourceTop + sourceHeight,
+            sourceTop + sourceHeight
+        ];
+
+        float minX = float.PositiveInfinity;
+        float minY = float.PositiveInfinity;
+        float maxX = float.NegativeInfinity;
+        float maxY = float.NegativeInfinity;
+        for (int index = 0; index < 4; index++)
+        {
+            RotateClockwise(cornerXs[index], cornerYs[index], centerX, centerY, cos, sin, out float rotatedX, out float rotatedY);
+            minX = MathF.Min(minX, rotatedX);
+            minY = MathF.Min(minY, rotatedY);
+            maxX = MathF.Max(maxX, rotatedX);
+            maxY = MathF.Max(maxY, rotatedY);
+        }
+
+        targetLeft = (int)MathF.Floor(minX);
+        targetTop = (int)MathF.Floor(minY);
+        targetWidth = Math.Max((int)MathF.Ceiling(maxX) - targetLeft, 1);
+        targetHeight = Math.Max((int)MathF.Ceiling(maxY) - targetTop, 1);
+    }
+
+    private bool TryGetCanvasPoint(PixelStudioLayoutSnapshot layout, float mouseX, float mouseY, out float canvasX, out float canvasY)
+    {
+        canvasX = 0f;
+        canvasY = 0f;
+        if (layout.CanvasCellSize <= 0)
+        {
+            return false;
+        }
+
+        canvasX = (mouseX - layout.CanvasViewportRect.X) / layout.CanvasCellSize;
+        canvasY = (mouseY - layout.CanvasViewportRect.Y) / layout.CanvasCellSize;
+        return float.IsFinite(canvasX) && float.IsFinite(canvasY);
+    }
+
+    private void SetSelectionTransformPreviewState(int left, int top, int width, int height, float rotationDegrees)
+    {
+        _selectionTransformPreviewLeft = left;
+        _selectionTransformPreviewTop = top;
+        _selectionTransformPreviewWidth = width;
+        _selectionTransformPreviewHeight = height;
+        _selectionTransformPreviewRotationDegrees = rotationDegrees;
+    }
+
     private void RefreshPixelStudioPixels(IReadOnlyCollection<int>? dirtyPixelIndices = null, bool refreshPreviewFrame = false)
     {
         EnsurePixelStudioIndices();
@@ -4286,7 +4951,7 @@ public sealed partial class EditorWindowScene
             return;
         }
 
-        if (!CanTransformCurrentLayer("scaling the selection"))
+        if (!CanTransformCurrentLayer(handleKind == PixelStudioSelectionHandleKind.Rotate ? "rotating the selection" : "scaling the selection"))
         {
             return;
         }
@@ -4300,15 +4965,62 @@ public sealed partial class EditorWindowScene
         _selectionTransformPreviewTop = top;
         _selectionTransformPreviewWidth = width;
         _selectionTransformPreviewHeight = height;
+        _selectionTransformPreviewRotationDegrees = 0f;
         _selectionTransformPreviewVisible = true;
         _pixelDragMode = PixelStudioDragMode.TransformSelection;
-        RefreshPixelStudioInteraction();
+        RefreshSelectionTransformOverlay(_layoutSnapshot?.PixelStudio);
     }
 
     private void UpdateSelectionTransformPreview(PixelStudioLayoutSnapshot layout, float mouseX, float mouseY)
     {
-        if (_pixelDragMode != PixelStudioDragMode.TransformSelection
-            || !TryGetCanvasCellCoordinates(layout, mouseX, mouseY, out int cellX, out int cellY, clampToCanvas: true))
+        if (_pixelDragMode != PixelStudioDragMode.TransformSelection)
+        {
+            return;
+        }
+
+        if (_selectionTransformHandleKind == PixelStudioSelectionHandleKind.Rotate)
+        {
+            if (!TryGetCanvasPoint(layout, mouseX, mouseY, out float mouseCanvasX, out float mouseCanvasY))
+            {
+                return;
+            }
+
+            float centerX = _selectionTransformSourceLeft + (_selectionTransformSourceWidth * 0.5f);
+            float centerY = _selectionTransformSourceTop + (_selectionTransformSourceHeight * 0.5f);
+            float deltaX = mouseCanvasX - centerX;
+            float deltaY = mouseCanvasY - centerY;
+            if ((deltaX * deltaX) + (deltaY * deltaY) < 0.0001f)
+            {
+                return;
+            }
+
+            float nextRotationDegrees = SnapSelectionTransformRotationDegrees((MathF.Atan2(deltaY, deltaX) * 180f / MathF.PI) + 90f);
+            ComputeRotatedSelectionTargetBounds(
+                _selectionTransformSourceLeft,
+                _selectionTransformSourceTop,
+                _selectionTransformSourceWidth,
+                _selectionTransformSourceHeight,
+                nextRotationDegrees,
+                out int rotatedLeft,
+                out int rotatedTop,
+                out int rotatedWidth,
+                out int rotatedHeight);
+
+            if (_selectionTransformPreviewLeft == rotatedLeft
+                && _selectionTransformPreviewTop == rotatedTop
+                && _selectionTransformPreviewWidth == rotatedWidth
+                && _selectionTransformPreviewHeight == rotatedHeight
+                && MathF.Abs(_selectionTransformPreviewRotationDegrees - nextRotationDegrees) <= 0.01f)
+            {
+                return;
+            }
+
+            SetSelectionTransformPreviewState(rotatedLeft, rotatedTop, rotatedWidth, rotatedHeight, nextRotationDegrees);
+            RefreshSelectionTransformOverlay(layout);
+            return;
+        }
+
+        if (!TryGetCanvasCellCoordinates(layout, mouseX, mouseY, out int cellX, out int cellY, clampToCanvas: true))
         {
             return;
         }
@@ -4328,11 +5040,19 @@ public sealed partial class EditorWindowScene
                 nextWidth = (sourceRight - nextLeft) + 1;
                 nextHeight = (sourceBottom - nextTop) + 1;
                 break;
+            case PixelStudioSelectionHandleKind.Top:
+                nextTop = Math.Clamp(cellY, 0, sourceBottom);
+                nextHeight = (sourceBottom - nextTop) + 1;
+                break;
             case PixelStudioSelectionHandleKind.TopRight:
                 int nextRight = Math.Clamp(cellX, _selectionTransformSourceLeft, _pixelStudio.CanvasWidth - 1);
                 nextTop = Math.Clamp(cellY, 0, sourceBottom);
                 nextWidth = (nextRight - _selectionTransformSourceLeft) + 1;
                 nextHeight = (sourceBottom - nextTop) + 1;
+                break;
+            case PixelStudioSelectionHandleKind.Right:
+                int rightEdge = Math.Clamp(cellX, _selectionTransformSourceLeft, _pixelStudio.CanvasWidth - 1);
+                nextWidth = (rightEdge - _selectionTransformSourceLeft) + 1;
                 break;
             case PixelStudioSelectionHandleKind.BottomLeft:
                 nextLeft = Math.Clamp(cellX, 0, sourceRight);
@@ -4340,11 +5060,19 @@ public sealed partial class EditorWindowScene
                 nextWidth = (sourceRight - nextLeft) + 1;
                 nextHeight = (nextBottom - _selectionTransformSourceTop) + 1;
                 break;
+            case PixelStudioSelectionHandleKind.Bottom:
+                int bottomEdge = Math.Clamp(cellY, _selectionTransformSourceTop, _pixelStudio.CanvasHeight - 1);
+                nextHeight = (bottomEdge - _selectionTransformSourceTop) + 1;
+                break;
             case PixelStudioSelectionHandleKind.BottomRight:
                 int previewRight = Math.Clamp(cellX, _selectionTransformSourceLeft, _pixelStudio.CanvasWidth - 1);
                 int previewBottom = Math.Clamp(cellY, _selectionTransformSourceTop, _pixelStudio.CanvasHeight - 1);
                 nextWidth = (previewRight - _selectionTransformSourceLeft) + 1;
                 nextHeight = (previewBottom - _selectionTransformSourceTop) + 1;
+                break;
+            case PixelStudioSelectionHandleKind.Left:
+                nextLeft = Math.Clamp(cellX, 0, sourceRight);
+                nextWidth = (sourceRight - nextLeft) + 1;
                 break;
         }
 
@@ -4356,16 +5084,14 @@ public sealed partial class EditorWindowScene
         if (_selectionTransformPreviewLeft == nextLeft
             && _selectionTransformPreviewTop == nextTop
             && _selectionTransformPreviewWidth == nextWidth
-            && _selectionTransformPreviewHeight == nextHeight)
+            && _selectionTransformPreviewHeight == nextHeight
+            && MathF.Abs(_selectionTransformPreviewRotationDegrees) <= 0.01f)
         {
             return;
         }
 
-        _selectionTransformPreviewLeft = nextLeft;
-        _selectionTransformPreviewTop = nextTop;
-        _selectionTransformPreviewWidth = nextWidth;
-        _selectionTransformPreviewHeight = nextHeight;
-        RefreshPixelStudioInteraction();
+        SetSelectionTransformPreviewState(nextLeft, nextTop, nextWidth, nextHeight, 0f);
+        RefreshSelectionTransformOverlay(layout);
     }
 
     private void CommitSelectionTransform()
@@ -4375,29 +5101,73 @@ public sealed partial class EditorWindowScene
             return;
         }
 
+        int sourceLeft = _selectionTransformSourceLeft;
+        int sourceTop = _selectionTransformSourceTop;
+        int sourceWidth = _selectionTransformSourceWidth;
+        int sourceHeight = _selectionTransformSourceHeight;
         int targetLeft = _selectionTransformPreviewLeft;
         int targetTop = _selectionTransformPreviewTop;
         int targetWidth = _selectionTransformPreviewWidth;
         int targetHeight = _selectionTransformPreviewHeight;
-        bool changed = targetLeft != _selectionTransformSourceLeft
-            || targetTop != _selectionTransformSourceTop
-            || targetWidth != _selectionTransformSourceWidth
-            || targetHeight != _selectionTransformSourceHeight;
+        float targetRotationDegrees = _selectionTransformPreviewRotationDegrees;
+        PixelStudioSelectionHandleKind transformKind = _selectionTransformHandleKind;
+        bool changed = targetLeft != sourceLeft
+            || targetTop != sourceTop
+            || targetWidth != sourceWidth
+            || targetHeight != sourceHeight
+            || MathF.Abs(targetRotationDegrees) > 0.01f;
+
+        if (_pixelDragMode == PixelStudioDragMode.TransformSelection)
+        {
+            _pixelDragMode = PixelStudioDragMode.None;
+        }
 
         ClearSelectionTransformPreview();
         if (!changed)
         {
-            RefreshPixelStudioInteraction();
+            RefreshSelectionTransformOverlay(_layoutSnapshot?.PixelStudio);
             return;
         }
 
-        ApplyPixelStudioChange("Scaled selection.", () =>
+        ApplyPixelStudioChange(transformKind == PixelStudioSelectionHandleKind.Rotate ? "Rotated selection." : "Scaled selection.", () =>
         {
+            if (MathF.Abs(targetRotationDegrees) > 0.01f)
+            {
+                float radians = targetRotationDegrees * (MathF.PI / 180f);
+                float cos = MathF.Cos(radians);
+                float sin = MathF.Sin(radians);
+                float centerX = sourceLeft + (sourceWidth * 0.5f);
+                float centerY = sourceTop + (sourceHeight * 0.5f);
+                return ApplySelectionBufferTransform(
+                    sourceLeft,
+                    sourceTop,
+                    sourceWidth,
+                    sourceHeight,
+                    targetLeft,
+                    targetTop,
+                    targetWidth,
+                    targetHeight,
+                    (targetX, targetY, _, _) =>
+                    {
+                        float targetCenterX = targetLeft + targetX + 0.5f;
+                        float targetCenterY = targetTop + targetY + 0.5f;
+                        InverseRotateClockwise(targetCenterX, targetCenterY, centerX, centerY, cos, sin, out float sourceCanvasX, out float sourceCanvasY);
+                        if (sourceCanvasX < sourceLeft || sourceCanvasX >= sourceLeft + sourceWidth || sourceCanvasY < sourceTop || sourceCanvasY >= sourceTop + sourceHeight)
+                        {
+                            return (-1, -1);
+                        }
+
+                        int sourceX = Math.Clamp((int)MathF.Floor(sourceCanvasX - sourceLeft), 0, Math.Max(sourceWidth - 1, 0));
+                        int sourceY = Math.Clamp((int)MathF.Floor(sourceCanvasY - sourceTop), 0, Math.Max(sourceHeight - 1, 0));
+                        return (sourceX, sourceY);
+                    });
+            }
+
             return ApplySelectionBufferTransform(
-                _selectionTransformSourceLeft,
-                _selectionTransformSourceTop,
-                _selectionTransformSourceWidth,
-                _selectionTransformSourceHeight,
+                sourceLeft,
+                sourceTop,
+                sourceWidth,
+                sourceHeight,
                 targetLeft,
                 targetTop,
                 targetWidth,
@@ -4408,13 +5178,13 @@ public sealed partial class EditorWindowScene
                     int sourceY = Math.Clamp((int)MathF.Floor((targetY / (float)Math.Max(targetHeight - 1, 1)) * Math.Max(sourceHeight - 1, 0)), 0, Math.Max(sourceHeight - 1, 0));
                     return (sourceX, sourceY);
                 });
-        }, rebuildLayout: false);
+        }, rebuildLayout: true);
     }
 
     private void ClearSelectionTransformPreview()
     {
         _selectionTransformPreviewVisible = false;
-        _selectionTransformHandleKind = PixelStudioSelectionHandleKind.TopLeft;
+        _selectionTransformHandleKind = PixelStudioSelectionHandleKind.Rotate;
         _selectionTransformSourceLeft = 0;
         _selectionTransformSourceTop = 0;
         _selectionTransformSourceWidth = 0;
@@ -4423,6 +5193,18 @@ public sealed partial class EditorWindowScene
         _selectionTransformPreviewTop = 0;
         _selectionTransformPreviewWidth = 0;
         _selectionTransformPreviewHeight = 0;
+        _selectionTransformPreviewRotationDegrees = 0f;
+    }
+
+    private void CancelSelectionTransformPreview()
+    {
+        if (_pixelDragMode == PixelStudioDragMode.TransformSelection)
+        {
+            _pixelDragMode = PixelStudioDragMode.None;
+        }
+
+        ClearSelectionTransformPreview();
+        RefreshSelectionTransformOverlay(_layoutSnapshot?.PixelStudio);
     }
 
     private PixelStudioViewState BuildPixelStudioViewState(bool refreshPixelBuffers = false)
@@ -4445,6 +5227,7 @@ public sealed partial class EditorWindowScene
             CanvasPanX = _pixelStudio.CanvasPanX,
             CanvasPanY = _pixelStudio.CanvasPanY,
             ShowGrid = _pixelStudio.ShowGrid,
+            MirrorMode = _mirrorMode,
             FramesPerSecond = _pixelStudio.FramesPerSecond,
             ShowOnionSkin = _pixelStudio.ShowOnionSkin,
             OnionOpacity = _pixelStudio.OnionOpacity,
@@ -4452,6 +5235,10 @@ public sealed partial class EditorWindowScene
             CanUndo = _pixelUndoStack.Count > 0,
             CanRedo = _pixelRedoStack.Count > 0,
             ActiveTool = _pixelStudio.ActiveTool,
+            RectangleRenderMode = _rectangleRenderMode,
+            EllipseRenderMode = _ellipseRenderMode,
+            ShapePreset = _shapePreset,
+            ShapeRenderMode = _shapeRenderMode,
             ActivePaletteIndex = _pixelStudio.ActivePaletteIndex,
             ActiveColorHex = ToHex(activeColor),
             ActiveColor = activeColor,
@@ -4459,6 +5246,7 @@ public sealed partial class EditorWindowScene
             ActiveColorAlpha = activeColor.A,
             ActiveLayerOpacity = NormalizeLayerOpacity(CurrentPixelLayer.Opacity),
             ActiveLayerAlphaLocked = CurrentPixelLayer.IsAlphaLocked,
+            LayerOpacityControlsVisible = _layerOpacityControlsVisible,
             ActivePaletteName = GetActivePaletteDisplayName(),
             ColorPickerMode = _pixelColorPickerMode,
             PaletteLibraryVisible = _paletteLibraryVisible,
@@ -4488,6 +5276,7 @@ public sealed partial class EditorWindowScene
             SelectionTransformPreviewY = _selectionTransformPreviewTop,
             SelectionTransformPreviewWidth = _selectionTransformPreviewWidth,
             SelectionTransformPreviewHeight = _selectionTransformPreviewHeight,
+            SelectionTransformPreviewRotationDegrees = _selectionTransformPreviewRotationDegrees,
             HasClipboardSelection = HasSelectionClipboard(),
             ClipboardWidth = _selectionClipboardWidth,
             ClipboardHeight = _selectionClipboardHeight,
@@ -4504,6 +5293,8 @@ public sealed partial class EditorWindowScene
             WarningDialogVisible = _pixelWarningDialogVisible,
             WarningDialogTitle = _pixelWarningDialogTitle,
             WarningDialogMessage = _pixelWarningDialogMessage,
+            WarningDialogConfirmLabel = GetPixelWarningDialogConfirmLabel(),
+            WarningDialogCancelLabel = GetPixelWarningDialogCancelLabel(),
             WarningToastVisible = false,
             WarningToastText = string.Empty,
             PromptForPaletteGenerationAfterImport = _promptForPaletteGenerationAfterImport,
@@ -4636,6 +5427,9 @@ public sealed partial class EditorWindowScene
                 break;
             case PixelStudioWarningDialogKind.ScaleSelectionDown:
                 ScaleSelectionPixels(scaleUp: false, requireWarning: false);
+                break;
+            case PixelStudioWarningDialogKind.HiddenLayerEdit:
+                RevealActiveLayerForEditing();
                 break;
             default:
                 RefreshPixelStudioView(rebuildLayout: true);
@@ -4832,6 +5626,21 @@ public sealed partial class EditorWindowScene
 
         if (!_paletteRenameActive && !_layerRenameActive && !_frameRenameActive)
         {
+            if (_selectionTransformPreviewVisible)
+            {
+                switch (key)
+                {
+                    case Key.Enter:
+                        CommitSelectionTransform();
+                        RefreshPixelStudioView("Transform applied.", rebuildLayout: true);
+                        return true;
+                    case Key.Escape:
+                        CancelSelectionTransformPreview();
+                        RefreshPixelStudioView("Transform cancelled.", rebuildLayout: true);
+                        return true;
+                }
+            }
+
             if (key == Key.Delete && _selectionActive && !CurrentPixelLayer.IsLocked && !CurrentPixelLayer.IsAlphaLocked)
             {
                 DeleteSelectionPixels();
@@ -4976,13 +5785,48 @@ public sealed partial class EditorWindowScene
             return [];
         }
 
-        if (_contextSelectionToolActive)
+        if (_contextToolMenuTool == PixelStudioToolKind.Select)
         {
             return
             [
                 new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetSelectionModeBox, Label = "Box Select" },
                 new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetSelectionModeAutoGlobal, Label = "Automatic - Global" },
                 new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetSelectionModeAutoLocal, Label = "Automatic - Local" }
+            ];
+        }
+
+        if (_contextToolMenuTool == PixelStudioToolKind.Rectangle)
+        {
+            return
+            [
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetRectangleModeOutline, Label = "Rectangle Outline" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetRectangleModeFilled, Label = "Rectangle Fill" }
+            ];
+        }
+
+        if (_contextToolMenuTool == PixelStudioToolKind.Ellipse)
+        {
+            return
+            [
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetEllipseModeOutline, Label = "Ellipse Outline" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetEllipseModeFilled, Label = "Ellipse Fill" }
+            ];
+        }
+
+        if (_contextToolMenuTool == PixelStudioToolKind.Shape)
+        {
+            return
+            [
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeStarOutline, Label = "Star Outline" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeStarFilled, Label = "Star Fill" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeHeartOutline, Label = "Heart Outline" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeHeartFilled, Label = "Heart Fill" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeTeardropOutline, Label = "Teardrop Outline" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeTeardropFilled, Label = "Teardrop Fill" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeTriangleOutline, Label = "Triangle Outline" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeTriangleFilled, Label = "Triangle Fill" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeDiamondOutline, Label = "Diamond Outline" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetShapeModeDiamondFilled, Label = "Diamond Fill" }
             ];
         }
 
@@ -5094,7 +5938,7 @@ public sealed partial class EditorWindowScene
         _contextLayerIndex = null;
         _contextFrameIndex = null;
         _contextSelectionActive = false;
-        _contextSelectionToolActive = false;
+        _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
         _pixelContextMenuX = x;
@@ -5109,7 +5953,7 @@ public sealed partial class EditorWindowScene
         _contextPaletteIndex = null;
         _contextFrameIndex = null;
         _contextSelectionActive = false;
-        _contextSelectionToolActive = false;
+        _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
         _pixelContextMenuX = x;
@@ -5124,7 +5968,7 @@ public sealed partial class EditorWindowScene
         _contextLayerIndex = null;
         _contextPaletteIndex = null;
         _contextSelectionActive = false;
-        _contextSelectionToolActive = false;
+        _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
         _pixelContextMenuX = x;
@@ -5138,7 +5982,7 @@ public sealed partial class EditorWindowScene
         _contextLayerIndex = null;
         _contextPaletteIndex = null;
         _contextSelectionActive = true;
-        _contextSelectionToolActive = false;
+        _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
         _pixelContextMenuX = x;
@@ -5152,7 +5996,7 @@ public sealed partial class EditorWindowScene
         _contextLayerIndex = null;
         _contextPaletteIndex = null;
         _contextSelectionActive = false;
-        _contextSelectionToolActive = false;
+        _contextToolMenuTool = null;
         _contextClipboardActive = true;
         _pixelContextMenuVisible = true;
         _pixelContextMenuX = x;
@@ -5160,19 +6004,19 @@ public sealed partial class EditorWindowScene
         RefreshPixelStudioView("Opened clipboard menu.", rebuildLayout: true);
     }
 
-    private void OpenSelectionToolContextMenu(float x, float y)
+    private void OpenToolContextMenu(PixelStudioToolKind tool, float x, float y)
     {
         _contextFrameIndex = null;
         _contextLayerIndex = null;
         _contextPaletteIndex = null;
         _contextSelectionActive = false;
-        _contextSelectionToolActive = true;
+        _contextToolMenuTool = tool;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
         _pixelContextMenuX = x;
         _pixelContextMenuY = y;
-        _pixelStudio.ActiveTool = PixelStudioToolKind.Select;
-        RefreshPixelStudioView("Opened selection mode menu.", rebuildLayout: true);
+        _pixelStudio.ActiveTool = tool;
+        RefreshPixelStudioView($"Opened {GetPixelStudioToolStatusLabel(tool)} mode menu.", rebuildLayout: true);
     }
 
     private void ClosePixelContextMenu()
@@ -5182,7 +6026,7 @@ public sealed partial class EditorWindowScene
         _contextLayerIndex = null;
         _contextFrameIndex = null;
         _contextSelectionActive = false;
-        _contextSelectionToolActive = false;
+        _contextToolMenuTool = null;
         _contextClipboardActive = false;
     }
 
@@ -5239,6 +6083,48 @@ public sealed partial class EditorWindowScene
                 break;
             case PixelStudioContextMenuAction.SetSelectionModeAutoLocal:
                 SetSelectionMode(PixelStudioSelectionMode.AutoLocal);
+                break;
+            case PixelStudioContextMenuAction.SetRectangleModeOutline:
+                SetRectangleRenderMode(PixelStudioShapeRenderMode.Outline);
+                break;
+            case PixelStudioContextMenuAction.SetRectangleModeFilled:
+                SetRectangleRenderMode(PixelStudioShapeRenderMode.Filled);
+                break;
+            case PixelStudioContextMenuAction.SetEllipseModeOutline:
+                SetEllipseRenderMode(PixelStudioShapeRenderMode.Outline);
+                break;
+            case PixelStudioContextMenuAction.SetEllipseModeFilled:
+                SetEllipseRenderMode(PixelStudioShapeRenderMode.Filled);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeStarOutline:
+                SetShapeToolMode(PixelStudioShapePreset.Star, PixelStudioShapeRenderMode.Outline);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeStarFilled:
+                SetShapeToolMode(PixelStudioShapePreset.Star, PixelStudioShapeRenderMode.Filled);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeHeartOutline:
+                SetShapeToolMode(PixelStudioShapePreset.Heart, PixelStudioShapeRenderMode.Outline);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeHeartFilled:
+                SetShapeToolMode(PixelStudioShapePreset.Heart, PixelStudioShapeRenderMode.Filled);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeTeardropOutline:
+                SetShapeToolMode(PixelStudioShapePreset.Teardrop, PixelStudioShapeRenderMode.Outline);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeTeardropFilled:
+                SetShapeToolMode(PixelStudioShapePreset.Teardrop, PixelStudioShapeRenderMode.Filled);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeTriangleOutline:
+                SetShapeToolMode(PixelStudioShapePreset.Triangle, PixelStudioShapeRenderMode.Outline);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeTriangleFilled:
+                SetShapeToolMode(PixelStudioShapePreset.Triangle, PixelStudioShapeRenderMode.Filled);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeDiamondOutline:
+                SetShapeToolMode(PixelStudioShapePreset.Diamond, PixelStudioShapeRenderMode.Outline);
+                break;
+            case PixelStudioContextMenuAction.SetShapeModeDiamondFilled:
+                SetShapeToolMode(PixelStudioShapePreset.Diamond, PixelStudioShapeRenderMode.Filled);
                 break;
             case PixelStudioContextMenuAction.RenamePalette:
                 if (_contextPaletteIndex is not null)
@@ -5400,6 +6286,31 @@ public sealed partial class EditorWindowScene
         RefreshPixelStudioView($"Selection mode set to {modeLabel}.", rebuildLayout: true);
     }
 
+    private void SetRectangleRenderMode(PixelStudioShapeRenderMode mode)
+    {
+        _rectangleRenderMode = mode;
+        _pixelStudio.ActiveTool = PixelStudioToolKind.Rectangle;
+        ClosePixelContextMenu();
+        RefreshPixelStudioView($"Rectangle tool set to {GetShapeRenderModeLabel(mode)}.", rebuildLayout: true);
+    }
+
+    private void SetEllipseRenderMode(PixelStudioShapeRenderMode mode)
+    {
+        _ellipseRenderMode = mode;
+        _pixelStudio.ActiveTool = PixelStudioToolKind.Ellipse;
+        ClosePixelContextMenu();
+        RefreshPixelStudioView($"Ellipse tool set to {GetShapeRenderModeLabel(mode)}.", rebuildLayout: true);
+    }
+
+    private void SetShapeToolMode(PixelStudioShapePreset preset, PixelStudioShapeRenderMode mode)
+    {
+        _shapePreset = preset;
+        _shapeRenderMode = mode;
+        _pixelStudio.ActiveTool = PixelStudioToolKind.Shape;
+        ClosePixelContextMenu();
+        RefreshPixelStudioView($"Shape tool set to {GetShapePresetLabel(preset)} {GetShapeRenderModeLabel(mode)}.", rebuildLayout: true);
+    }
+
     private string GetPixelStudioToolStatusLabel(PixelStudioToolKind tool)
     {
         return tool switch
@@ -5414,8 +6325,9 @@ public sealed partial class EditorWindowScene
             PixelStudioToolKind.Pencil => "Pencil",
             PixelStudioToolKind.Eraser => "Eraser",
             PixelStudioToolKind.Line => "Line",
-            PixelStudioToolKind.Rectangle => "Rectangle",
-            PixelStudioToolKind.Ellipse => "Ellipse",
+            PixelStudioToolKind.Rectangle => GetRectangleToolLabel(),
+            PixelStudioToolKind.Ellipse => GetEllipseToolLabel(),
+            PixelStudioToolKind.Shape => GetShapeToolLabel(),
             PixelStudioToolKind.Fill => "Fill",
             PixelStudioToolKind.Picker => "Picker",
             _ => tool.ToString()
@@ -5436,8 +6348,9 @@ public sealed partial class EditorWindowScene
             PixelStudioToolKind.Pencil => "Pencil",
             PixelStudioToolKind.Eraser => "Eraser",
             PixelStudioToolKind.Line => "Line",
-            PixelStudioToolKind.Rectangle => "Rectangle",
-            PixelStudioToolKind.Ellipse => "Ellipse",
+            PixelStudioToolKind.Rectangle => GetRectangleToolLabel(),
+            PixelStudioToolKind.Ellipse => GetEllipseToolLabel(),
+            PixelStudioToolKind.Shape => GetShapeToolLabel(),
             PixelStudioToolKind.Fill => "Fill",
             PixelStudioToolKind.Picker => "Picker",
             _ => tool.ToString()
@@ -5458,8 +6371,13 @@ public sealed partial class EditorWindowScene
             PixelStudioToolKind.Pencil => "Paint with the current color and brush size.",
             PixelStudioToolKind.Eraser => "Erase pixels with the current brush size.",
             PixelStudioToolKind.Line => "Drag to preview and place a straight line.",
-            PixelStudioToolKind.Rectangle => "Drag to preview and place a box outline.",
-            PixelStudioToolKind.Ellipse => "Drag to preview and place an ellipse outline. Hold Shift for a circle.",
+            PixelStudioToolKind.Rectangle => _rectangleRenderMode == PixelStudioShapeRenderMode.Filled
+                ? "Drag to preview and place a filled box. Hold Shift for a square. Right-click to change mode."
+                : "Drag to preview and place a box outline. Hold Shift for a square. Right-click to change mode.",
+            PixelStudioToolKind.Ellipse => _ellipseRenderMode == PixelStudioShapeRenderMode.Filled
+                ? "Drag to preview and place a filled ellipse. Hold Shift for a circle. Right-click to change mode."
+                : "Drag to preview and place an ellipse outline. Hold Shift for a circle. Right-click to change mode.",
+            PixelStudioToolKind.Shape => $"Drag to preview and place a {_shapeRenderMode switch { PixelStudioShapeRenderMode.Filled => "filled", _ => "outlined" }} {GetShapePresetLabel(_shapePreset).ToLowerInvariant()}. Hold Shift for even proportions. Right-click to switch shapes.",
             PixelStudioToolKind.Fill => "Fill a region or the active selection.",
             PixelStudioToolKind.Picker => "Sample a color from the active layer.",
             _ => "Tool"
@@ -5475,6 +6393,32 @@ public sealed partial class EditorWindowScene
             _ => "Box Select"
         };
     }
+
+    private string GetRectangleToolLabel()
+        => _rectangleRenderMode == PixelStudioShapeRenderMode.Filled ? "Rectangle Fill" : "Rectangle";
+
+    private string GetEllipseToolLabel()
+        => _ellipseRenderMode == PixelStudioShapeRenderMode.Filled ? "Ellipse Fill" : "Ellipse";
+
+    private string GetShapeToolLabel()
+        => _shapeRenderMode == PixelStudioShapeRenderMode.Filled
+            ? $"{GetShapePresetLabel(_shapePreset)} Fill"
+            : GetShapePresetLabel(_shapePreset);
+
+    private static string GetShapePresetLabel(PixelStudioShapePreset preset)
+    {
+        return preset switch
+        {
+            PixelStudioShapePreset.Heart => "Heart",
+            PixelStudioShapePreset.Teardrop => "Teardrop",
+            PixelStudioShapePreset.Triangle => "Triangle",
+            PixelStudioShapePreset.Diamond => "Diamond",
+            _ => "Star"
+        };
+    }
+
+    private static string GetShapeRenderModeLabel(PixelStudioShapeRenderMode mode)
+        => mode == PixelStudioShapeRenderMode.Filled ? "fill mode" : "outline mode";
 
     private void SelectAndApplySavedPalette(int index)
     {
@@ -6051,7 +6995,7 @@ public sealed partial class EditorWindowScene
                 clockwise
                     ? static (targetX, targetY, sourceWidth, sourceHeight) => (targetY, sourceHeight - 1 - targetX)
                     : static (targetX, targetY, sourceWidth, sourceHeight) => (sourceWidth - 1 - targetY, targetX));
-        }, rebuildLayout: false);
+        }, rebuildLayout: true);
     }
 
     private void ScaleSelectionPixels(bool scaleUp, bool requireWarning = true)
@@ -6113,7 +7057,7 @@ public sealed partial class EditorWindowScene
                     int sourceY = Math.Clamp((int)MathF.Floor((targetY / (float)Math.Max(targetHeight - 1, 1)) * Math.Max(sourceHeight - 1, 0)), 0, Math.Max(sourceHeight - 1, 0));
                     return (sourceX, sourceY);
                 });
-        }, rebuildLayout: false);
+        }, rebuildLayout: true);
     }
 
     private void NudgeSelectionBy(int deltaX, int deltaY)
@@ -6149,7 +7093,7 @@ public sealed partial class EditorWindowScene
                 width,
                 height,
                 static (targetX, targetY, sourceWidth, sourceHeight) => (targetX, targetY));
-        }, rebuildLayout: false);
+        }, rebuildLayout: true);
     }
 
     private bool ApplySelectionBufferTransform(
@@ -6165,19 +7109,10 @@ public sealed partial class EditorWindowScene
     {
         int[] source = BuildSelectionClipboardBuffer(sourceLeft, sourceTop, sourceWidth, sourceHeight);
         bool usesMask = SelectionUsesMask();
-        foreach (int index in EnumerateSelectedIndices())
-        {
-            if (index >= 0 && index < CurrentPixelLayer.Pixels.Length)
-            {
-                if (CanWritePixelToLayer(CurrentPixelLayer, index, -1))
-                {
-                    CurrentPixelLayer.Pixels[index] = -1;
-                }
-            }
-        }
-
+        List<(int TargetIndex, int SourceValue)> writes = [];
         HashSet<int> transformedIndices = [];
         bool changedPixels = false;
+        bool hasSourcePixels = false;
         for (int targetY = 0; targetY < targetHeight; targetY++)
         {
             for (int targetX = 0; targetX < targetWidth; targetX++)
@@ -6194,6 +7129,8 @@ public sealed partial class EditorWindowScene
                     continue;
                 }
 
+                hasSourcePixels = true;
+
                 int absoluteX = targetLeft + targetX;
                 int absoluteY = targetTop + targetY;
                 if (!IsWithinCanvas(absoluteX, absoluteY))
@@ -6207,24 +7144,44 @@ public sealed partial class EditorWindowScene
                     continue;
                 }
 
-                if (CurrentPixelLayer.Pixels[targetIndex] != sourceValue)
-                {
-                    changedPixels = true;
-                }
-
-                CurrentPixelLayer.Pixels[targetIndex] = sourceValue;
+                writes.Add((targetIndex, sourceValue));
                 transformedIndices.Add(targetIndex);
             }
         }
 
-        if (usesMask)
+        if (!hasSourcePixels || writes.Count == 0)
         {
-            if (transformedIndices.Count == 0)
+            return false;
+        }
+
+        foreach (int index in EnumerateSelectedIndices())
+        {
+            if (index >= 0 && index < CurrentPixelLayer.Pixels.Length)
             {
-                ClearSelection();
-                return changedPixels;
+                if (CanWritePixelToLayer(CurrentPixelLayer, index, -1))
+                {
+                    CurrentPixelLayer.Pixels[index] = -1;
+                }
+            }
+        }
+
+        foreach ((int targetIndex, int sourceValue) in writes)
+        {
+            if (CurrentPixelLayer.Pixels[targetIndex] != sourceValue)
+            {
+                changedPixels = true;
             }
 
+            CurrentPixelLayer.Pixels[targetIndex] = sourceValue;
+        }
+
+        bool targetFullyWithinCanvas =
+            targetLeft >= 0 &&
+            targetTop >= 0 &&
+            targetLeft + targetWidth <= _pixelStudio.CanvasWidth &&
+            targetTop + targetHeight <= _pixelStudio.CanvasHeight;
+        if (usesMask || !targetFullyWithinCanvas)
+        {
             ApplySelectionMask(transformedIndices, committed: true);
         }
         else
@@ -6415,6 +7372,11 @@ public sealed partial class EditorWindowScene
 
     private bool CanTransformCurrentLayer(string actionLabel)
     {
+        if (!EnsureCurrentLayerVisibleForEditing(actionLabel))
+        {
+            return false;
+        }
+
         if (CurrentPixelLayer.IsLocked)
         {
             RefreshPixelStudioView($"Unlock the active layer before {actionLabel}.");
@@ -6428,6 +7390,50 @@ public sealed partial class EditorWindowScene
         }
 
         return true;
+    }
+
+    private bool EnsureCurrentLayerVisibleForEditing(string actionLabel)
+    {
+        if (CurrentPixelLayer.IsVisible)
+        {
+            return true;
+        }
+
+        OpenPixelWarningDialog(
+            PixelStudioWarningDialogKind.HiddenLayerEdit,
+            "Active Layer Is Hidden",
+            $"The active layer \"{CurrentPixelLayer.Name}\" is hidden. Show it before {actionLabel} so your edits stay visible?");
+        return false;
+    }
+
+    private void RevealActiveLayerForEditing()
+    {
+        int layerIndex = Math.Clamp(_pixelStudio.ActiveLayerIndex, 0, CurrentPixelFrame.Layers.Count - 1);
+        foreach (PixelStudioFrameState frame in _pixelStudio.Frames)
+        {
+            frame.Layers[layerIndex].IsVisible = true;
+        }
+
+        MarkPixelStudioRecoveryDirty();
+        RefreshPixelStudioView($"Shown layer: {CurrentPixelFrame.Layers[layerIndex].Name}.", rebuildLayout: true, refreshPixelBuffers: true);
+    }
+
+    private string GetPixelWarningDialogConfirmLabel()
+    {
+        return _pixelWarningDialogKind switch
+        {
+            PixelStudioWarningDialogKind.HiddenLayerEdit => "Show Layer",
+            _ => "Continue"
+        };
+    }
+
+    private string GetPixelWarningDialogCancelLabel()
+    {
+        return _pixelWarningDialogKind switch
+        {
+            PixelStudioWarningDialogKind.HiddenLayerEdit => "Cancel",
+            _ => "Cancel"
+        };
     }
 
     private static bool CanWritePixelToLayer(PixelStudioLayerState layer, int pixelIndex, int nextValue)
@@ -6466,6 +7472,28 @@ public sealed partial class EditorWindowScene
     private static PixelStudioState CreateDefaultPixelStudio()
     {
         return CreateBlankPixelStudio(32, 32);
+    }
+
+    private static PixelStudioMirrorMode GetNextMirrorMode(PixelStudioMirrorMode mode)
+    {
+        return mode switch
+        {
+            PixelStudioMirrorMode.Off => PixelStudioMirrorMode.Horizontal,
+            PixelStudioMirrorMode.Horizontal => PixelStudioMirrorMode.Vertical,
+            PixelStudioMirrorMode.Vertical => PixelStudioMirrorMode.Both,
+            _ => PixelStudioMirrorMode.Off
+        };
+    }
+
+    private string BuildMirrorModeStatusText()
+    {
+        return _mirrorMode switch
+        {
+            PixelStudioMirrorMode.Horizontal => "Mirror drawing enabled: horizontal symmetry.",
+            PixelStudioMirrorMode.Vertical => "Mirror drawing enabled: vertical symmetry.",
+            PixelStudioMirrorMode.Both => "Mirror drawing enabled: four-way symmetry.",
+            _ => "Mirror drawing disabled."
+        };
     }
 
     private static PixelStudioState CreateBlankPixelStudio(int width, int height)
@@ -6513,6 +7541,38 @@ public sealed partial class EditorWindowScene
         };
     }
 
+    private PixelStudioEditorToolState CapturePixelStudioEditorToolState()
+    {
+        return new PixelStudioEditorToolState(
+            _pixelStudio.ActiveTool,
+            _pixelStudio.BrushSize,
+            _pixelStudio.ActivePaletteIndex,
+            _selectionMode,
+            _mirrorMode,
+            _rectangleRenderMode,
+            _ellipseRenderMode,
+            _shapePreset,
+            _shapeRenderMode);
+    }
+
+    private void ApplyPixelStudioEditorToolState(PixelStudioEditorToolState state)
+    {
+        _pixelStudio.ActiveTool = state.ActiveTool;
+        _pixelStudio.BrushSize = Math.Clamp(state.BrushSize, 1, 16);
+        _selectionMode = state.SelectionMode;
+        _mirrorMode = state.MirrorMode;
+        _rectangleRenderMode = state.RectangleRenderMode;
+        _ellipseRenderMode = state.EllipseRenderMode;
+        _shapePreset = state.ShapePreset;
+        _shapeRenderMode = state.ShapeRenderMode;
+        _pixelStudio.SelectionMode = state.SelectionMode;
+        _pixelStudio.RectangleRenderMode = state.RectangleRenderMode;
+        _pixelStudio.EllipseRenderMode = state.EllipseRenderMode;
+        _pixelStudio.ShapePreset = state.ShapePreset;
+        _pixelStudio.ShapeRenderMode = state.ShapeRenderMode;
+        _pixelStudio.ActivePaletteIndex = Math.Clamp(state.ActivePaletteIndex, 0, Math.Max(_pixelStudio.Palette.Count - 1, 0));
+    }
+
     private void ReplacePixelStudioDocument(PixelStudioState source, bool clearSelection = true)
     {
         ClearSelectionTransformPreview();
@@ -6538,6 +7598,10 @@ public sealed partial class EditorWindowScene
         _pixelStudio.OnionOpacity = source.OnionOpacity;
         _pixelStudio.IsPlaying = source.IsPlaying;
         _pixelStudio.ActiveTool = source.ActiveTool;
+        _pixelStudio.RectangleRenderMode = source.RectangleRenderMode;
+        _pixelStudio.EllipseRenderMode = source.EllipseRenderMode;
+        _pixelStudio.ShapePreset = source.ShapePreset;
+        _pixelStudio.ShapeRenderMode = source.ShapeRenderMode;
         _pixelStudio.ActivePaletteIndex = source.ActivePaletteIndex;
         _pixelStudio.ActiveFrameIndex = source.ActiveFrameIndex;
         _pixelStudio.ActiveLayerIndex = source.ActiveLayerIndex;
@@ -6546,6 +7610,10 @@ public sealed partial class EditorWindowScene
         _pixelStudio.Palette.AddRange(source.Palette);
         _pixelStudio.Frames.Clear();
         _pixelStudio.Frames.AddRange(source.Frames.Select(CloneFrameState));
+        _rectangleRenderMode = source.RectangleRenderMode;
+        _ellipseRenderMode = source.EllipseRenderMode;
+        _shapePreset = source.ShapePreset;
+        _shapeRenderMode = source.ShapeRenderMode;
         RelinkSharedLayerReferences(_pixelStudio.Frames);
         EnsurePixelStudioIndices();
         ResetPaletteInteractionState();
@@ -6573,6 +7641,10 @@ public sealed partial class EditorWindowScene
             IsPlaying = source.IsPlaying,
             ActiveTool = source.ActiveTool,
             SelectionMode = source.SelectionMode,
+            RectangleRenderMode = source.RectangleRenderMode,
+            EllipseRenderMode = source.EllipseRenderMode,
+            ShapePreset = source.ShapePreset,
+            ShapeRenderMode = source.ShapeRenderMode,
             HasSelection = source.HasSelection,
             SelectionCommitted = source.SelectionCommitted,
             SelectionStartX = source.SelectionStartX,
@@ -6607,8 +7679,9 @@ public sealed partial class EditorWindowScene
 
     private void RestorePixelStudioState(PixelStudioState snapshot)
     {
+        PixelStudioEditorToolState editorToolState = CapturePixelStudioEditorToolState();
         ReplacePixelStudioDocument(ClonePixelStudioState(snapshot), clearSelection: true);
-        _selectionMode = snapshot.SelectionMode;
+        ApplyPixelStudioEditorToolState(editorToolState);
         if (snapshot.HasSelection)
         {
             if (snapshot.SelectionMaskIndices.Count > 0)
@@ -7005,6 +8078,10 @@ public sealed partial class EditorWindowScene
             IsPlaying = false,
             PreviewFrameIndex = _pixelStudio.PreviewFrameIndex,
             ActiveTool = _pixelStudio.ActiveTool,
+            RectangleRenderMode = _rectangleRenderMode,
+            EllipseRenderMode = _ellipseRenderMode,
+            ShapePreset = _shapePreset,
+            ShapeRenderMode = _shapeRenderMode,
             ActivePaletteIndex = _pixelStudio.ActivePaletteIndex,
             ActiveFrameIndex = _pixelStudio.ActiveFrameIndex,
             ActiveLayerIndex = _pixelStudio.ActiveLayerIndex,
@@ -7091,6 +8168,10 @@ public sealed partial class EditorWindowScene
             IsPlaying = false,
             PreviewFrameIndex = document.PreviewFrameIndex,
             ActiveTool = document.ActiveTool,
+            RectangleRenderMode = document.RectangleRenderMode,
+            EllipseRenderMode = document.EllipseRenderMode,
+            ShapePreset = document.ShapePreset,
+            ShapeRenderMode = document.ShapeRenderMode,
             ActivePaletteIndex = document.ActivePaletteIndex,
             ActiveFrameIndex = document.ActiveFrameIndex,
             ActiveLayerIndex = document.ActiveLayerIndex,

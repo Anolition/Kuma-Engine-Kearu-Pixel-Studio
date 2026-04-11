@@ -77,6 +77,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private bool _pixelTimelineVisible;
     private PixelStudioColorPickerMode _pixelColorPickerMode;
     private EditorNotificationSoundMode _notificationSoundMode;
+    private int _transformRotationSnapDegrees = 45;
     private ShellDragMode _shellDragMode;
     private PixelStudioDragMode _pixelDragMode;
     private string _paletteRenameBuffer = string.Empty;
@@ -95,9 +96,10 @@ public sealed partial class EditorWindowScene : IWindowScene
     private StandardCursor _activeCursor = StandardCursor.Arrow;
     private bool _startupSplashVisible = true;
     private DateTimeOffset _startupSplashStartedAt = DateTimeOffset.MinValue;
+    private static readonly int[] TransformRotationSnapSteps = [15, 30, 45, 90];
 
     public EditorWindowScene(EditorShell shell, string initialThemeName)
-        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, [], null, false)
+        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, 45, [], null, false)
     {
     }
 
@@ -116,6 +118,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         bool promptForPaletteGenerationAfterImport,
         PixelStudioColorPickerMode pixelColorPickerMode,
         EditorNotificationSoundMode notificationSoundMode,
+        int transformRotationSnapDegrees,
         IReadOnlyList<SavedEditorTheme> customThemes,
         PixelStudioRecoverySnapshot? recoverySnapshot,
         bool preserveDeferredRecoveryOnCleanExit)
@@ -156,6 +159,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _pixelTimelineVisible = normalizedLayout.PixelTimelineVisible;
         _pixelColorPickerMode = pixelColorPickerMode;
         _notificationSoundMode = notificationSoundMode;
+        _transformRotationSnapDegrees = NormalizeTransformRotationSnapDegrees(transformRotationSnapDegrees);
         NotificationSoundPlayer.SoundMode = _notificationSoundMode;
         _pixelToolSettingsPanelOffsetX = normalizedLayout.PixelToolSettingsOffsetX ?? float.NaN;
         _pixelToolSettingsPanelOffsetY = normalizedLayout.PixelToolSettingsOffsetY ?? float.NaN;
@@ -851,6 +855,12 @@ public sealed partial class EditorWindowScene : IWindowScene
             return StandardCursor.ResizeAll;
         }
 
+        PixelStudioSelectionHandleRect? selectionHandle = layout.SelectionHandleRects.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
+        if (selectionHandle is not null)
+        {
+            return ResolveSelectionHandleCursor(selectionHandle.Kind);
+        }
+
         if (layout.CanvasClipRect.Contains(mouseX, mouseY))
         {
             if (_pixelStudio.ActiveTool == PixelStudioToolKind.Hand || _pixelDragMode == PixelStudioDragMode.PanCanvas)
@@ -858,7 +868,8 @@ public sealed partial class EditorWindowScene : IWindowScene
                 return StandardCursor.Hand;
             }
 
-            if ((_selectionCommitted || _selectionMoveActive)
+            if (!_selectionTransformModeActive
+                && (_selectionCommitted || _selectionMoveActive)
                 && TryGetCanvasCellCoordinates(layout, mouseX, mouseY, out int selectionCellX, out int selectionCellY, clampToCanvas: true)
                 && IsWithinCurrentSelection(selectionCellX, selectionCellY))
             {
@@ -880,6 +891,18 @@ public sealed partial class EditorWindowScene : IWindowScene
         }
 
         return StandardCursor.Arrow;
+    }
+
+    private static StandardCursor ResolveSelectionHandleCursor(PixelStudioSelectionHandleKind handleKind)
+    {
+        return handleKind switch
+        {
+            PixelStudioSelectionHandleKind.Rotate => StandardCursor.Crosshair,
+            PixelStudioSelectionHandleKind.Top or PixelStudioSelectionHandleKind.Bottom => StandardCursor.VResize,
+            PixelStudioSelectionHandleKind.Left or PixelStudioSelectionHandleKind.Right => StandardCursor.HResize,
+            PixelStudioSelectionHandleKind.TopLeft or PixelStudioSelectionHandleKind.BottomRight => StandardCursor.NwseResize,
+            _ => StandardCursor.NeswResize
+        };
     }
 
     private bool HandleShellScroll(EditorLayoutSnapshot layout, float mouseX, float mouseY, ScrollWheel scrollWheel)
@@ -1010,6 +1033,7 @@ public sealed partial class EditorWindowScene : IWindowScene
             PromptForPaletteGenerationAfterImport = _promptForPaletteGenerationAfterImport,
             PixelColorPickerMode = _pixelColorPickerMode,
             NotificationSoundMode = _notificationSoundMode,
+            TransformRotationSnapDegrees = _transformRotationSnapDegrees,
             CustomThemes = _customThemes.Select(CloneSavedEditorTheme).ToList()
         };
 
@@ -1045,6 +1069,8 @@ public sealed partial class EditorWindowScene : IWindowScene
             _ => "Kuma"
         };
 
+    private string CurrentTransformRotationSnapLabel => $"{_transformRotationSnapDegrees} deg";
+
     private void SyncUiState(string? overrideStatus = null)
     {
         _uiState.StartupSplashVisible = _startupSplashVisible;
@@ -1052,6 +1078,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _uiState.FontFamily = _preferredFontFamily;
         _uiState.FontSizeLabel = _fontSizePreset.ToString();
         _uiState.NotificationSoundLabel = CurrentNotificationSoundLabel;
+        _uiState.TransformRotationSnapLabel = CurrentTransformRotationSnapLabel;
         _uiState.ProjectLibraryPath = _projectLibraryPath;
         _uiState.LeftPanelPreferredWidth = _leftPanelWidth;
         _uiState.RightPanelPreferredWidth = _rightPanelWidth;
@@ -1193,6 +1220,22 @@ public sealed partial class EditorWindowScene : IWindowScene
         NotificationSoundPlayer.SoundMode = _notificationSoundMode;
         SyncUiState($"Alert sounds set to {CurrentNotificationSoundLabel}.");
         _renderer?.InvalidateTextCache();
+    }
+
+    private void CycleTransformRotationSnap()
+    {
+        int currentIndex = Array.IndexOf(TransformRotationSnapSteps, NormalizeTransformRotationSnapDegrees(_transformRotationSnapDegrees));
+        int nextIndex = (currentIndex + 1 + TransformRotationSnapSteps.Length) % TransformRotationSnapSteps.Length;
+        _transformRotationSnapDegrees = TransformRotationSnapSteps[nextIndex];
+        SyncUiState($"Transform rotate snap set to {_transformRotationSnapDegrees} degrees.");
+        _renderer?.InvalidateTextCache();
+    }
+
+    private static int NormalizeTransformRotationSnapDegrees(int value)
+    {
+        return TransformRotationSnapSteps.Contains(value)
+            ? value
+            : 45;
     }
 
     private void ExecuteMenuAction(EditorMenuAction action)
@@ -1631,6 +1674,9 @@ public sealed partial class EditorWindowScene : IWindowScene
                 break;
             case EditorPreferenceAction.CycleNotificationSoundMode:
                 CycleNotificationSoundMode();
+                break;
+            case EditorPreferenceAction.CycleTransformRotationSnap:
+                CycleTransformRotationSnap();
                 break;
             case EditorPreferenceAction.OpenThemeStudio:
                 OpenThemeStudio();

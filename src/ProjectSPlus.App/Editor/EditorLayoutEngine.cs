@@ -1225,7 +1225,8 @@ public static partial class EditorLayoutEngine
                 PixelStudioAction.ToggleTimelinePanel,
                 PixelStudioAction.ZoomOut,
                 PixelStudioAction.ZoomIn,
-                PixelStudioAction.ToggleGrid
+                PixelStudioAction.ToggleGrid,
+                PixelStudioAction.CycleMirrorMode
             ],
             92,
             28);
@@ -1650,6 +1651,7 @@ public static partial class EditorLayoutEngine
                 8,
                 [
                     PixelStudioAction.AddLayer,
+                    PixelStudioAction.ToggleLayerOpacityControls,
                     PixelStudioAction.ToggleLayerAlphaLock
                 ],
                 96,
@@ -1666,28 +1668,31 @@ public static partial class EditorLayoutEngine
         if (!sidebarCollapsed)
         {
             layerAlphaLockButtonRect = layerButtons.FirstOrDefault(button => button.Action == PixelStudioAction.ToggleLayerAlphaLock)?.Rect;
-            float layerSliderX = layersBodyRect.X + 58f;
-            float layerSliderWidth = Math.Max(layersBodyRect.Width - 60f, 72f);
-            layerOpacitySliderRect = new UiRect(layerSliderX, layersButtonRegion.Y + layersButtonRegion.Height + 18f, layerSliderWidth, 10f);
-            float layerOpacityRatio = Math.Clamp(pixelStudio.ActiveLayerOpacity, 0f, 1f);
-            float layerOpacityTrackWidth = Math.Max(layerOpacitySliderRect.Value.Width - 4f, 0f);
-            float layerOpacityFillWidth = layerOpacityTrackWidth * layerOpacityRatio;
-            layerOpacityFillRect = new UiRect(
-                layerOpacitySliderRect.Value.X + 2f,
-                layerOpacitySliderRect.Value.Y + 2f,
-                layerOpacityFillWidth,
-                Math.Max(layerOpacitySliderRect.Value.Height - 4f, 0f));
-            float layerKnobX = layerOpacitySliderRect.Value.X + 2f + layerOpacityFillWidth - 6f;
-            layerKnobX = Math.Clamp(
-                layerKnobX,
-                layerOpacitySliderRect.Value.X,
-                layerOpacitySliderRect.Value.X + Math.Max(layerOpacitySliderRect.Value.Width - 12f, 0f));
-            layerOpacityKnobRect = new UiRect(
-                layerKnobX,
-                layerOpacitySliderRect.Value.Y - 3f,
-                12f,
-                Math.Max(layerOpacitySliderRect.Value.Height + 6f, 0f));
-            layerListY = layerOpacitySliderRect.Value.Y + layerOpacitySliderRect.Value.Height + 18f;
+            if (pixelStudio.LayerOpacityControlsVisible)
+            {
+                float layerSliderX = layersBodyRect.X + 14f;
+                float layerSliderWidth = Math.Max(layersBodyRect.Width - 20f, 72f);
+                layerOpacitySliderRect = new UiRect(layerSliderX, layersButtonRegion.Y + layersButtonRegion.Height + 18f, layerSliderWidth, 10f);
+                float layerOpacityRatio = Math.Clamp(pixelStudio.ActiveLayerOpacity, 0f, 1f);
+                float layerOpacityTrackWidth = Math.Max(layerOpacitySliderRect.Value.Width - 4f, 0f);
+                float layerOpacityFillWidth = layerOpacityTrackWidth * layerOpacityRatio;
+                layerOpacityFillRect = new UiRect(
+                    layerOpacitySliderRect.Value.X + 2f,
+                    layerOpacitySliderRect.Value.Y + 2f,
+                    layerOpacityFillWidth,
+                    Math.Max(layerOpacitySliderRect.Value.Height - 4f, 0f));
+                float layerKnobX = layerOpacitySliderRect.Value.X + 2f + layerOpacityFillWidth - 6f;
+                layerKnobX = Math.Clamp(
+                    layerKnobX,
+                    layerOpacitySliderRect.Value.X,
+                    layerOpacitySliderRect.Value.X + Math.Max(layerOpacitySliderRect.Value.Width - 12f, 0f));
+                layerOpacityKnobRect = new UiRect(
+                    layerKnobX,
+                    layerOpacitySliderRect.Value.Y - 3f,
+                    12f,
+                    Math.Max(layerOpacitySliderRect.Value.Height + 6f, 0f));
+                layerListY = layerOpacitySliderRect.Value.Y + layerOpacitySliderRect.Value.Height + 18f;
+            }
             if (pixelStudio.LayerRenameActive)
             {
                 layerRenameFieldRect = new UiRect(layersBodyRect.X, layerListY, layersBodyRect.Width, 30);
@@ -2010,56 +2015,12 @@ public static partial class EditorLayoutEngine
         UiRect canvasViewportRect = camera.ViewportRect;
 
         List<IndexedRect> canvasCells = [];
-        UiRect? selectionTransformPreviewRect = null;
-        List<PixelStudioSelectionHandleRect> selectionHandleRects = [];
-        if (pixelStudio.HasSelection && cellSize > 0)
-        {
-            int selectionLeft = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewX : pixelStudio.SelectionX;
-            int selectionTop = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewY : pixelStudio.SelectionY;
-            int selectionWidth = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewWidth : pixelStudio.SelectionWidth;
-            int selectionHeight = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewHeight : pixelStudio.SelectionHeight;
-            if (selectionWidth > 0 && selectionHeight > 0)
-            {
-                UiRect selectionBoundsRect = SnapRect(new UiRect(
-                    canvasViewportRect.X + (selectionLeft * cellSize),
-                    canvasViewportRect.Y + (selectionTop * cellSize),
-                    Math.Max(selectionWidth * cellSize, 1),
-                    Math.Max(selectionHeight * cellSize, 1)));
-                if (pixelStudio.SelectionTransformPreviewVisible)
-                {
-                    selectionTransformPreviewRect = selectionBoundsRect;
-                }
-
-                if (pixelStudio.SelectionTransformModeActive)
-                {
-                    float handleSize = Math.Clamp(MathF.Min(Math.Max(cellSize * 0.5f, 10f), 16f), 10f, 16f);
-                    float handleHalf = handleSize * 0.5f;
-                    selectionHandleRects =
-                    [
-                        new PixelStudioSelectionHandleRect
-                        {
-                            Kind = PixelStudioSelectionHandleKind.TopLeft,
-                            Rect = SnapRect(new UiRect(selectionBoundsRect.X - handleHalf, selectionBoundsRect.Y - handleHalf, handleSize, handleSize))
-                        },
-                        new PixelStudioSelectionHandleRect
-                        {
-                            Kind = PixelStudioSelectionHandleKind.TopRight,
-                            Rect = SnapRect(new UiRect(selectionBoundsRect.X + selectionBoundsRect.Width - handleHalf, selectionBoundsRect.Y - handleHalf, handleSize, handleSize))
-                        },
-                        new PixelStudioSelectionHandleRect
-                        {
-                            Kind = PixelStudioSelectionHandleKind.BottomLeft,
-                            Rect = SnapRect(new UiRect(selectionBoundsRect.X - handleHalf, selectionBoundsRect.Y + selectionBoundsRect.Height - handleHalf, handleSize, handleSize))
-                        },
-                        new PixelStudioSelectionHandleRect
-                        {
-                            Kind = PixelStudioSelectionHandleKind.BottomRight,
-                            Rect = SnapRect(new UiRect(selectionBoundsRect.X + selectionBoundsRect.Width - handleHalf, selectionBoundsRect.Y + selectionBoundsRect.Height - handleHalf, handleSize, handleSize))
-                        }
-                    ];
-                }
-            }
-        }
+        BuildSelectionTransformOverlay(
+            pixelStudio,
+            canvasViewportRect,
+            cellSize,
+            out UiRect? selectionTransformPreviewRect,
+            out List<PixelStudioSelectionHandleRect> selectionHandleRects);
 
         return new PixelStudioLayoutSnapshot
         {
@@ -2148,6 +2109,133 @@ public static partial class EditorLayoutEngine
         };
     }
 
+    public static void BuildSelectionTransformOverlay(
+        PixelStudioViewState pixelStudio,
+        UiRect canvasViewportRect,
+        int cellSize,
+        out UiRect? selectionTransformPreviewRect,
+        out List<PixelStudioSelectionHandleRect> selectionHandleRects)
+    {
+        selectionTransformPreviewRect = null;
+        selectionHandleRects = [];
+        if (!pixelStudio.HasSelection || cellSize <= 0)
+        {
+            return;
+        }
+
+        int selectionLeft = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewX : pixelStudio.SelectionX;
+        int selectionTop = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewY : pixelStudio.SelectionY;
+        int selectionWidth = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewWidth : pixelStudio.SelectionWidth;
+        int selectionHeight = pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewHeight : pixelStudio.SelectionHeight;
+        if (selectionWidth <= 0 || selectionHeight <= 0)
+        {
+            return;
+        }
+
+        UiRect selectionBoundsRect = SnapRect(new UiRect(
+            canvasViewportRect.X + (selectionLeft * cellSize),
+            canvasViewportRect.Y + (selectionTop * cellSize),
+            Math.Max(selectionWidth * cellSize, 1),
+            Math.Max(selectionHeight * cellSize, 1)));
+        if (pixelStudio.SelectionTransformPreviewVisible)
+        {
+            selectionTransformPreviewRect = selectionBoundsRect;
+        }
+
+        if (!pixelStudio.SelectionTransformModeActive || pixelStudio.ActiveTool != PixelStudioToolKind.Select)
+        {
+            return;
+        }
+
+        float rotationDegrees = pixelStudio.SelectionTransformPreviewVisible
+            ? pixelStudio.SelectionTransformPreviewRotationDegrees
+            : 0f;
+        bool rotateOverlay = MathF.Abs(rotationDegrees) > 0.01f;
+        float handleSize = Math.Clamp(MathF.Min(Math.Max(cellSize * 0.65f, 14f), 20f), 14f, 20f);
+        float handleHalf = handleSize * 0.5f;
+        float centerX = selectionBoundsRect.X + (selectionBoundsRect.Width * 0.5f);
+        float centerY = selectionBoundsRect.Y + (selectionBoundsRect.Height * 0.5f);
+        float overlayWidth = Math.Max((rotateOverlay ? pixelStudio.SelectionWidth : selectionWidth) * cellSize, 1);
+        float overlayHeight = Math.Max((rotateOverlay ? pixelStudio.SelectionHeight : selectionHeight) * cellSize, 1);
+        float overlayHalfWidth = overlayWidth * 0.5f;
+        float overlayHalfHeight = overlayHeight * 0.5f;
+        float radians = rotationDegrees * (MathF.PI / 180f);
+        float cos = MathF.Cos(radians);
+        float sin = MathF.Sin(radians);
+        float rotateHandleSize = Math.Clamp(handleSize + 2f, 16f, 22f);
+        float rotateHalf = rotateHandleSize * 0.5f;
+        float rotateGap = Math.Clamp((handleSize * 2.2f) + 6f, 26f, 44f);
+        static (float X, float Y) RotatePoint(float centerX, float centerY, float localX, float localY, float cos, float sin)
+        {
+            return (
+                centerX + (localX * cos) - (localY * sin),
+                centerY + (localX * sin) + (localY * cos));
+        }
+
+        static UiRect CenterRectAt(float centerX, float centerY, float halfSize, float size)
+        {
+            return SnapRect(new UiRect(centerX - halfSize, centerY - halfSize, size, size));
+        }
+
+        (float rotateCenterX, float rotateCenterY) = RotatePoint(centerX, centerY, 0f, -overlayHalfHeight - rotateGap, cos, sin);
+        (float topLeftX, float topLeftY) = RotatePoint(centerX, centerY, -overlayHalfWidth, -overlayHalfHeight, cos, sin);
+        (float topCenterX, float topCenterY) = RotatePoint(centerX, centerY, 0f, -overlayHalfHeight, cos, sin);
+        (float topRightX, float topRightY) = RotatePoint(centerX, centerY, overlayHalfWidth, -overlayHalfHeight, cos, sin);
+        (float rightCenterX, float rightCenterY) = RotatePoint(centerX, centerY, overlayHalfWidth, 0f, cos, sin);
+        (float bottomLeftX, float bottomLeftY) = RotatePoint(centerX, centerY, -overlayHalfWidth, overlayHalfHeight, cos, sin);
+        (float bottomCenterX, float bottomCenterY) = RotatePoint(centerX, centerY, 0f, overlayHalfHeight, cos, sin);
+        (float bottomRightX, float bottomRightY) = RotatePoint(centerX, centerY, overlayHalfWidth, overlayHalfHeight, cos, sin);
+        (float leftCenterX, float leftCenterY) = RotatePoint(centerX, centerY, -overlayHalfWidth, 0f, cos, sin);
+        selectionHandleRects =
+        [
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.Rotate,
+                Rect = CenterRectAt(rotateCenterX, rotateCenterY, rotateHalf, rotateHandleSize)
+            },
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.TopLeft,
+                Rect = CenterRectAt(topLeftX, topLeftY, handleHalf, handleSize)
+            },
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.Top,
+                Rect = CenterRectAt(topCenterX, topCenterY, handleHalf, handleSize)
+            },
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.TopRight,
+                Rect = CenterRectAt(topRightX, topRightY, handleHalf, handleSize)
+            },
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.Right,
+                Rect = CenterRectAt(rightCenterX, rightCenterY, handleHalf, handleSize)
+            },
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.BottomLeft,
+                Rect = CenterRectAt(bottomLeftX, bottomLeftY, handleHalf, handleSize)
+            },
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.Bottom,
+                Rect = CenterRectAt(bottomCenterX, bottomCenterY, handleHalf, handleSize)
+            },
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.BottomRight,
+                Rect = CenterRectAt(bottomRightX, bottomRightY, handleHalf, handleSize)
+            },
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.Left,
+                Rect = CenterRectAt(leftCenterX, leftCenterY, handleHalf, handleSize)
+            }
+        ];
+    }
+
     private static UiRect GetPaletteColorWheelFieldRect(UiRect wheelRect)
     {
         float centerX = wheelRect.X + (wheelRect.Width * 0.5f);
@@ -2217,6 +2305,7 @@ public static partial class EditorLayoutEngine
             PixelStudioToolKind.Line,
             PixelStudioToolKind.Rectangle,
             PixelStudioToolKind.Ellipse,
+            PixelStudioToolKind.Shape,
             PixelStudioToolKind.Fill,
             PixelStudioToolKind.Picker
         ];
@@ -2342,6 +2431,7 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.ZoomOut => Math.Max(readableMinimumWidth, 36),
             PixelStudioAction.ZoomIn => Math.Max(readableMinimumWidth, 36),
             PixelStudioAction.ToggleGrid => Math.Max(readableMinimumWidth, 58),
+            PixelStudioAction.CycleMirrorMode => Math.Max(readableMinimumWidth, 78),
             _ => readableMinimumWidth
         };
     }
@@ -2362,6 +2452,7 @@ public static partial class EditorLayoutEngine
             PixelStudioToolKind.Line => "/",
             PixelStudioToolKind.Rectangle => "[]",
             PixelStudioToolKind.Ellipse => "()",
+            PixelStudioToolKind.Shape => "*",
             PixelStudioToolKind.Fill => "F",
             PixelStudioToolKind.Picker => "I",
             _ => tool.ToString()
@@ -2404,6 +2495,7 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.ZoomOut => "-",
             PixelStudioAction.ZoomIn => "+",
             PixelStudioAction.ToggleGrid => "Grid",
+            PixelStudioAction.CycleMirrorMode => "Mirror",
             PixelStudioAction.FitCanvas => "Fit",
             PixelStudioAction.ResetView => "Reset",
             PixelStudioAction.ExportPng => "Export",
@@ -2451,6 +2543,7 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.DecreaseBlue => "B-",
             PixelStudioAction.IncreaseBlue => "B+",
             PixelStudioAction.AddLayer => "Layer +",
+            PixelStudioAction.ToggleLayerOpacityControls => "Opacity",
             PixelStudioAction.ToggleLayerAlphaLock => "Alpha",
             PixelStudioAction.DeleteLayer => "Layer -",
             PixelStudioAction.AddFrame => "Frame +",

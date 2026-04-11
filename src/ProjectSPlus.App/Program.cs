@@ -66,6 +66,7 @@ try
         settings.Editor.PromptForPaletteGenerationAfterImport,
         settings.Editor.PixelColorPickerMode,
         settings.Editor.NotificationSoundMode,
+        settings.Editor.TransformRotationSnapDegrees,
         settings.Editor.CustomThemes,
         recoverySnapshot,
         preserveDeferredRecovery);

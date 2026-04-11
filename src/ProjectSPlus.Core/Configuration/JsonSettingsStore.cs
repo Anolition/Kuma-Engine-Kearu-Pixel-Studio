@@ -112,6 +112,7 @@ public sealed class JsonSettingsStore
                 PromptForPaletteGenerationAfterImport = settings.Editor.PromptForPaletteGenerationAfterImport,
                 PixelColorPickerMode = settings.Editor.PixelColorPickerMode,
                 NotificationSoundMode = settings.Editor.NotificationSoundMode,
+                TransformRotationSnapDegrees = settings.Editor.TransformRotationSnapDegrees,
                 CustomThemes = settings.Editor.CustomThemes
             }
         };

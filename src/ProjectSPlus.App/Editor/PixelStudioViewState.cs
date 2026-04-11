@@ -21,6 +21,8 @@ public sealed class PixelStudioViewState
 
     public bool ShowGrid { get; set; }
 
+    public PixelStudioMirrorMode MirrorMode { get; set; }
+
     public int FramesPerSecond { get; set; }
 
     public bool ShowOnionSkin { get; set; }
@@ -35,6 +37,14 @@ public sealed class PixelStudioViewState
 
     public PixelStudioToolKind ActiveTool { get; set; } = PixelStudioToolKind.Pencil;
 
+    public PixelStudioShapeRenderMode RectangleRenderMode { get; set; } = PixelStudioShapeRenderMode.Outline;
+
+    public PixelStudioShapeRenderMode EllipseRenderMode { get; set; } = PixelStudioShapeRenderMode.Outline;
+
+    public PixelStudioShapePreset ShapePreset { get; set; } = PixelStudioShapePreset.Star;
+
+    public PixelStudioShapeRenderMode ShapeRenderMode { get; set; } = PixelStudioShapeRenderMode.Outline;
+
     public int ActivePaletteIndex { get; set; }
 
     public string ActiveColorHex { get; set; } = "#FFFFFF";
@@ -48,6 +58,8 @@ public sealed class PixelStudioViewState
     public float ActiveLayerOpacity { get; set; } = 1.0f;
 
     public bool ActiveLayerAlphaLocked { get; set; }
+
+    public bool LayerOpacityControlsVisible { get; set; }
 
     public string ActivePaletteName { get; set; } = "Current Palette";
 
@@ -107,6 +119,8 @@ public sealed class PixelStudioViewState
 
     public int SelectionTransformPreviewHeight { get; set; }
 
+    public float SelectionTransformPreviewRotationDegrees { get; set; }
+
     public bool HasClipboardSelection { get; set; }
 
     public int ClipboardWidth { get; set; }
@@ -136,6 +150,10 @@ public sealed class PixelStudioViewState
     public string WarningDialogTitle { get; set; } = string.Empty;
 
     public string WarningDialogMessage { get; set; } = string.Empty;
+
+    public string WarningDialogConfirmLabel { get; set; } = "Continue";
+
+    public string WarningDialogCancelLabel { get; set; } = "Cancel";
 
     public bool WarningToastVisible { get; set; }
 

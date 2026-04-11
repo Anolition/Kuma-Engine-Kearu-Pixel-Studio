@@ -24,6 +24,8 @@ public sealed class EditorUiState
 
     public string NotificationSoundLabel { get; set; } = string.Empty;
 
+    public string TransformRotationSnapLabel { get; set; } = string.Empty;
+
     public bool StartupSplashVisible { get; set; }
 
     public string ProjectLibraryPath { get; set; } = string.Empty;

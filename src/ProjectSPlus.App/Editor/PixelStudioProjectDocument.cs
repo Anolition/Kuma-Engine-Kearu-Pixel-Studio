@@ -32,6 +32,14 @@ public sealed class PixelStudioProjectDocument
 
     public PixelStudioToolKind ActiveTool { get; init; } = PixelStudioToolKind.Pencil;
 
+    public PixelStudioShapeRenderMode RectangleRenderMode { get; init; } = PixelStudioShapeRenderMode.Outline;
+
+    public PixelStudioShapeRenderMode EllipseRenderMode { get; init; } = PixelStudioShapeRenderMode.Outline;
+
+    public PixelStudioShapePreset ShapePreset { get; init; } = PixelStudioShapePreset.Star;
+
+    public PixelStudioShapeRenderMode ShapeRenderMode { get; init; } = PixelStudioShapeRenderMode.Outline;
+
     public int ActivePaletteIndex { get; init; }
 
     public int ActiveFrameIndex { get; init; }

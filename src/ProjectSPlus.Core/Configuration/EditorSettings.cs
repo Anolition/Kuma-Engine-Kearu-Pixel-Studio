@@ -28,5 +28,7 @@ public sealed class EditorSettings
 
     public EditorNotificationSoundMode NotificationSoundMode { get; init; } = EditorNotificationSoundMode.Custom;
 
+    public int TransformRotationSnapDegrees { get; init; } = 45;
+
     public IReadOnlyList<SavedEditorTheme> CustomThemes { get; init; } = [];
 }

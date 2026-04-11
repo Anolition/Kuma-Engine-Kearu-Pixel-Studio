@@ -34,6 +34,14 @@ public sealed class PixelStudioState
 
     public PixelStudioSelectionMode SelectionMode { get; set; } = PixelStudioSelectionMode.Box;
 
+    public PixelStudioShapeRenderMode RectangleRenderMode { get; set; } = PixelStudioShapeRenderMode.Outline;
+
+    public PixelStudioShapeRenderMode EllipseRenderMode { get; set; } = PixelStudioShapeRenderMode.Outline;
+
+    public PixelStudioShapePreset ShapePreset { get; set; } = PixelStudioShapePreset.Star;
+
+    public PixelStudioShapeRenderMode ShapeRenderMode { get; set; } = PixelStudioShapeRenderMode.Outline;
+
     public bool HasSelection { get; set; }
 
     public bool SelectionCommitted { get; set; }

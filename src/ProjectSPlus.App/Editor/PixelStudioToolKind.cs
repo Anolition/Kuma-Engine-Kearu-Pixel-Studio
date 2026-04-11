@@ -9,6 +9,7 @@ public enum PixelStudioToolKind
     Line,
     Rectangle,
     Ellipse,
+    Shape,
     Fill,
     Picker
 }
