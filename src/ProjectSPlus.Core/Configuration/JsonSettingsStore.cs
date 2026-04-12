@@ -61,6 +61,7 @@ public sealed class JsonSettingsStore
     {
         WindowSettings normalizedWindow = settings.Window.Normalize();
         EditorLayoutSettings normalizedLayout = settings.Editor.Layout.Normalize();
+        int normalizedAutosaveIntervalSeconds = EditorAutosaveOptions.Normalize(settings.Editor.PixelAutosaveIntervalSeconds);
         bool windowChanged =
             normalizedWindow.Width != settings.Window.Width
             || normalizedWindow.Height != settings.Window.Height
@@ -88,8 +89,9 @@ public sealed class JsonSettingsStore
             || normalizedLayout.PixelAnimationPreviewOffsetY != settings.Editor.Layout.PixelAnimationPreviewOffsetY
             || normalizedLayout.PixelAnimationPreviewWidth != settings.Editor.Layout.PixelAnimationPreviewWidth
             || normalizedLayout.PixelAnimationPreviewHeight != settings.Editor.Layout.PixelAnimationPreviewHeight;
+        bool editorChanged = normalizedAutosaveIntervalSeconds != settings.Editor.PixelAutosaveIntervalSeconds;
 
-        if (!windowChanged && !layoutChanged)
+        if (!windowChanged && !layoutChanged && !editorChanged)
         {
             return settings;
         }
@@ -112,6 +114,7 @@ public sealed class JsonSettingsStore
                 PromptForPaletteGenerationAfterImport = settings.Editor.PromptForPaletteGenerationAfterImport,
                 PixelColorPickerMode = settings.Editor.PixelColorPickerMode,
                 NotificationSoundMode = settings.Editor.NotificationSoundMode,
+                PixelAutosaveIntervalSeconds = normalizedAutosaveIntervalSeconds,
                 TransformRotationSnapDegrees = settings.Editor.TransformRotationSnapDegrees,
                 CustomThemes = settings.Editor.CustomThemes
             }

@@ -118,6 +118,8 @@ public sealed class PixelStudioLayoutSnapshot
 
     public UiRect? SelectionTransformPreviewRect { get; init; }
 
+    public UiRect? SelectionTransformAngleFieldRect { get; init; }
+
     public required int CameraZoom { get; init; }
 
     public required float CameraPanX { get; init; }
@@ -228,6 +230,7 @@ public sealed class PixelStudioLayoutSnapshot
             BrushSizeKnobRect = BrushSizeKnobRect,
             BrushPreviewRect = BrushPreviewRect,
             SelectionTransformPreviewRect = SelectionTransformPreviewRect,
+            SelectionTransformAngleFieldRect = SelectionTransformAngleFieldRect,
             CameraZoom = camera.Zoom,
             CameraPanX = camera.PanX,
             CameraPanY = camera.PanY,
@@ -320,6 +323,7 @@ public sealed class PixelStudioLayoutSnapshot
             BrushSizeKnobRect = OffsetRect(BrushSizeKnobRect, deltaX, deltaY),
             BrushPreviewRect = OffsetRect(BrushPreviewRect, deltaX, deltaY),
             SelectionTransformPreviewRect = SelectionTransformPreviewRect,
+            SelectionTransformAngleFieldRect = SelectionTransformAngleFieldRect,
             CameraZoom = CameraZoom,
             CameraPanX = CameraPanX,
             CameraPanY = CameraPanY,
@@ -409,6 +413,7 @@ public sealed class PixelStudioLayoutSnapshot
             BrushSizeKnobRect = BrushSizeKnobRect,
             BrushPreviewRect = BrushPreviewRect,
             SelectionTransformPreviewRect = SelectionTransformPreviewRect,
+            SelectionTransformAngleFieldRect = SelectionTransformAngleFieldRect,
             CameraZoom = CameraZoom,
             CameraPanX = CameraPanX,
             CameraPanY = CameraPanY,
@@ -498,6 +503,7 @@ public sealed class PixelStudioLayoutSnapshot
             BrushSizeKnobRect = BrushSizeKnobRect,
             BrushPreviewRect = BrushPreviewRect,
             SelectionTransformPreviewRect = SelectionTransformPreviewRect,
+            SelectionTransformAngleFieldRect = SelectionTransformAngleFieldRect,
             CameraZoom = CameraZoom,
             CameraPanX = CameraPanX,
             CameraPanY = CameraPanY,
@@ -525,7 +531,7 @@ public sealed class PixelStudioLayoutSnapshot
         };
     }
 
-    public PixelStudioLayoutSnapshot WithSelectionTransformOverlay(UiRect? previewRect, IReadOnlyList<PixelStudioSelectionHandleRect> handleRects)
+    public PixelStudioLayoutSnapshot WithSelectionTransformOverlay(UiRect? previewRect, UiRect? angleFieldRect, IReadOnlyList<PixelStudioSelectionHandleRect> handleRects)
     {
         return new PixelStudioLayoutSnapshot
         {
@@ -587,6 +593,7 @@ public sealed class PixelStudioLayoutSnapshot
             BrushSizeKnobRect = BrushSizeKnobRect,
             BrushPreviewRect = BrushPreviewRect,
             SelectionTransformPreviewRect = previewRect,
+            SelectionTransformAngleFieldRect = angleFieldRect,
             CameraZoom = CameraZoom,
             CameraPanX = CameraPanX,
             CameraPanY = CameraPanY,

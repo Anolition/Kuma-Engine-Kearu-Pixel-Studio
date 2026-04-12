@@ -4,8 +4,11 @@ using ProjectSPlus.Editor.Shell;
 using ProjectSPlus.App.Editor;
 using ProjectSPlus.Runtime.Application;
 
-string settingsPath = Path.Combine(AppContext.BaseDirectory, "settings", "appsettings.json");
-string logPath = Path.Combine(AppContext.BaseDirectory, "startup-error.log");
+AppStoragePaths.EnsureWritableDirectories();
+AppStoragePaths.TryMigrateLegacySettings();
+
+string settingsPath = AppStoragePaths.SettingsFilePath;
+string logPath = AppStoragePaths.StartupLogPath;
 
 AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
 {
@@ -31,6 +34,12 @@ try
 
     JsonSettingsStore settingsStore = new();
     AppSettings settings = settingsStore.LoadOrCreate(settingsPath);
+    AppSettings normalizedAppOwnedPaths = AppStoragePaths.NormalizeAppOwnedPaths(settings);
+    if (!ReferenceEquals(settings, normalizedAppOwnedPaths))
+    {
+        settingsStore.Save(settingsPath, normalizedAppOwnedPaths);
+        settings = normalizedAppOwnedPaths;
+    }
     NotificationSoundPlayer.SoundMode = settings.Editor.NotificationSoundMode;
     PixelStudioRecoverySnapshot? recoverySnapshot = null;
     bool preserveDeferredRecovery = false;
@@ -66,6 +75,7 @@ try
         settings.Editor.PromptForPaletteGenerationAfterImport,
         settings.Editor.PixelColorPickerMode,
         settings.Editor.NotificationSoundMode,
+        settings.Editor.PixelAutosaveIntervalSeconds,
         settings.Editor.TransformRotationSnapDegrees,
         settings.Editor.CustomThemes,
         recoverySnapshot,

@@ -1,3 +1,4 @@
+using ProjectSPlus.App;
 using ProjectSPlus.Core.Configuration;
 using ProjectSPlus.Editor.Shell;
 using ProjectSPlus.Editor.Themes;
@@ -77,6 +78,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private bool _pixelTimelineVisible;
     private PixelStudioColorPickerMode _pixelColorPickerMode;
     private EditorNotificationSoundMode _notificationSoundMode;
+    private int _pixelAutosaveIntervalSeconds = 10;
     private int _transformRotationSnapDegrees = 45;
     private ShellDragMode _shellDragMode;
     private PixelStudioDragMode _pixelDragMode;
@@ -99,7 +101,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private static readonly int[] TransformRotationSnapSteps = [15, 30, 45, 90];
 
     public EditorWindowScene(EditorShell shell, string initialThemeName)
-        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, 45, [], null, false)
+        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, 10, 45, [], null, false)
     {
     }
 
@@ -118,6 +120,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         bool promptForPaletteGenerationAfterImport,
         PixelStudioColorPickerMode pixelColorPickerMode,
         EditorNotificationSoundMode notificationSoundMode,
+        int pixelAutosaveIntervalSeconds,
         int transformRotationSnapDegrees,
         IReadOnlyList<SavedEditorTheme> customThemes,
         PixelStudioRecoverySnapshot? recoverySnapshot,
@@ -128,9 +131,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _preserveDeferredRecoveryOnCleanExit = preserveDeferredRecoveryOnCleanExit;
         _preferredFontFamily = ResolveAvailableFontFamily(preferredFontFamily);
         _fontSizePreset = fontSizePreset;
-        _projectLibraryPath = string.IsNullOrWhiteSpace(projectLibraryPath)
-            ? GetDefaultProjectLibraryPath()
-            : projectLibraryPath;
+        _projectLibraryPath = ResolveStartupProjectLibraryPath(projectLibraryPath);
         _lastProjectPath = lastProjectPath;
         _customThemes = customThemes
             .Where(theme => !string.IsNullOrWhiteSpace(theme.Id))
@@ -159,6 +160,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _pixelTimelineVisible = normalizedLayout.PixelTimelineVisible;
         _pixelColorPickerMode = pixelColorPickerMode;
         _notificationSoundMode = notificationSoundMode;
+        _pixelAutosaveIntervalSeconds = EditorAutosaveOptions.Normalize(pixelAutosaveIntervalSeconds);
         _transformRotationSnapDegrees = NormalizeTransformRotationSnapDegrees(transformRotationSnapDegrees);
         NotificationSoundPlayer.SoundMode = _notificationSoundMode;
         _pixelToolSettingsPanelOffsetX = normalizedLayout.PixelToolSettingsOffsetX ?? float.NaN;
@@ -1033,6 +1035,7 @@ public sealed partial class EditorWindowScene : IWindowScene
             PromptForPaletteGenerationAfterImport = _promptForPaletteGenerationAfterImport,
             PixelColorPickerMode = _pixelColorPickerMode,
             NotificationSoundMode = _notificationSoundMode,
+            PixelAutosaveIntervalSeconds = _pixelAutosaveIntervalSeconds,
             TransformRotationSnapDegrees = _transformRotationSnapDegrees,
             CustomThemes = _customThemes.Select(CloneSavedEditorTheme).ToList()
         };
@@ -1069,6 +1072,8 @@ public sealed partial class EditorWindowScene : IWindowScene
             _ => "Kuma"
         };
 
+    private string CurrentAutosaveLabel => EditorAutosaveOptions.ToLabel(_pixelAutosaveIntervalSeconds);
+
     private string CurrentTransformRotationSnapLabel => $"{_transformRotationSnapDegrees} deg";
 
     private void SyncUiState(string? overrideStatus = null)
@@ -1078,6 +1083,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _uiState.FontFamily = _preferredFontFamily;
         _uiState.FontSizeLabel = _fontSizePreset.ToString();
         _uiState.NotificationSoundLabel = CurrentNotificationSoundLabel;
+        _uiState.AutosaveLabel = CurrentAutosaveLabel;
         _uiState.TransformRotationSnapLabel = CurrentTransformRotationSnapLabel;
         _uiState.ProjectLibraryPath = _projectLibraryPath;
         _uiState.LeftPanelPreferredWidth = _leftPanelWidth;
@@ -1219,6 +1225,17 @@ public sealed partial class EditorWindowScene : IWindowScene
         };
         NotificationSoundPlayer.SoundMode = _notificationSoundMode;
         SyncUiState($"Alert sounds set to {CurrentNotificationSoundLabel}.");
+        _renderer?.InvalidateTextCache();
+    }
+
+    private void CycleAutosaveInterval()
+    {
+        int currentIndex = Array.IndexOf(EditorAutosaveOptions.SecondsSteps, EditorAutosaveOptions.Normalize(_pixelAutosaveIntervalSeconds));
+        int nextIndex = (currentIndex + 1 + EditorAutosaveOptions.SecondsSteps.Length) % EditorAutosaveOptions.SecondsSteps.Length;
+        _pixelAutosaveIntervalSeconds = EditorAutosaveOptions.SecondsSteps[nextIndex];
+        SyncUiState(_pixelAutosaveIntervalSeconds <= 0
+            ? "Timed autosave disabled. Recovery still saves on crash or close."
+            : $"Timed autosave set to every {CurrentAutosaveLabel}.");
         _renderer?.InvalidateTextCache();
     }
 
@@ -1567,7 +1584,50 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     private static string GetDefaultProjectLibraryPath()
     {
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), EditorBranding.DefaultProjectLibraryName);
+        return AppStoragePaths.DefaultProjectLibraryPath;
+    }
+
+    private static string ResolveStartupProjectLibraryPath(string? configuredPath)
+    {
+        if (string.IsNullOrWhiteSpace(configuredPath) || IsLegacyManagedProjectLibraryPath(configuredPath))
+        {
+            return GetDefaultProjectLibraryPath();
+        }
+
+        return configuredPath;
+    }
+
+    private static bool IsLegacyManagedProjectLibraryPath(string path)
+    {
+        try
+        {
+            string normalized = Path.GetFullPath(path);
+            string documentsPath = Path.GetFullPath(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
+            string oneDriveDocumentsPath = Path.GetFullPath(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "OneDrive",
+                "Documents"));
+
+            string[] legacyNames =
+            [
+                "Project S+ Projects",
+                EditorBranding.DefaultProjectLibraryName
+            ];
+
+            foreach (string legacyName in legacyNames)
+            {
+                if (string.Equals(normalized, Path.Combine(documentsPath, legacyName), StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(normalized, Path.Combine(oneDriveDocumentsPath, legacyName), StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
     }
 
     private static string ResolveAvailableFontFamily(string? preferredFontFamily)
@@ -1674,6 +1734,9 @@ public sealed partial class EditorWindowScene : IWindowScene
                 break;
             case EditorPreferenceAction.CycleNotificationSoundMode:
                 CycleNotificationSoundMode();
+                break;
+            case EditorPreferenceAction.CycleAutosaveInterval:
+                CycleAutosaveInterval();
                 break;
             case EditorPreferenceAction.CycleTransformRotationSnap:
                 CycleTransformRotationSnap();

@@ -7,6 +7,7 @@ public enum EditorPreferenceAction
     CycleFontFamily,
     CycleColorPickerMode,
     CycleNotificationSoundMode,
+    CycleAutosaveInterval,
     CycleTransformRotationSnap,
     OpenThemeStudio
 }

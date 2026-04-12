@@ -27,6 +27,10 @@ public sealed class PixelStudioViewState
 
     public bool ShowOnionSkin { get; set; }
 
+    public bool ShowPreviousOnion { get; set; } = true;
+
+    public bool ShowNextOnion { get; set; }
+
     public float OnionOpacity { get; set; } = 0.42f;
 
     public bool IsPlaying { get; set; }
@@ -97,6 +101,10 @@ public sealed class PixelStudioViewState
 
     public bool SelectionTransformModeActive { get; set; }
 
+    public bool SelectionTransformAngleFieldActive { get; set; }
+
+    public string SelectionTransformAngleBuffer { get; set; } = string.Empty;
+
     public int SelectionX { get; set; }
 
     public int SelectionY { get; set; }
@@ -120,6 +128,10 @@ public sealed class PixelStudioViewState
     public int SelectionTransformPreviewHeight { get; set; }
 
     public float SelectionTransformPreviewRotationDegrees { get; set; }
+
+    public float SelectionTransformPivotX { get; set; }
+
+    public float SelectionTransformPivotY { get; set; }
 
     public bool HasClipboardSelection { get; set; }
 
@@ -162,6 +174,18 @@ public sealed class PixelStudioViewState
     public PixelStudioResizeAnchor CanvasResizeAnchor { get; set; } = PixelStudioResizeAnchor.TopLeft;
 
     public bool PromptForPaletteGenerationAfterImport { get; set; } = true;
+
+    public bool HasUnsavedChanges { get; set; }
+
+    public bool AutosaveEnabled { get; set; }
+
+    public bool AutosavePending { get; set; }
+
+    public long AutosaveAnimationEndsAtUnixMilliseconds { get; set; }
+
+    public bool RecoveryBannerVisible { get; set; }
+
+    public string RecoveryBannerText { get; set; } = string.Empty;
 
     public float ToolsPanelPreferredWidth { get; set; } = 40;
 

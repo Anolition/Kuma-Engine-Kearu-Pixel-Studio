@@ -11,6 +11,7 @@ public sealed partial class EditorWindowScene
         PaletteRename,
         LayerRename,
         FrameRename,
+        TransformAngle,
         CanvasResizeWidth,
         CanvasResizeHeight
     }
@@ -137,6 +138,7 @@ public sealed partial class EditorWindowScene
             EditableTextTarget.PaletteRename => _paletteRenameActive,
             EditableTextTarget.LayerRename => _layerRenameActive,
             EditableTextTarget.FrameRename => _frameRenameActive,
+            EditableTextTarget.TransformAngle => _selectionTransformAngleFieldActive,
             EditableTextTarget.CanvasResizeWidth => _canvasResizeDialogVisible && _canvasResizeActiveField == CanvasResizeInputField.Width,
             EditableTextTarget.CanvasResizeHeight => _canvasResizeDialogVisible && _canvasResizeActiveField == CanvasResizeInputField.Height,
             _ => false
@@ -164,6 +166,9 @@ public sealed partial class EditorWindowScene
                 break;
             case EditableTextTarget.FrameRename:
                 DeleteFrameRenameText();
+                break;
+            case EditableTextTarget.TransformAngle:
+                DeleteSelectionTransformAngleText();
                 break;
             case EditableTextTarget.CanvasResizeWidth:
             case EditableTextTarget.CanvasResizeHeight:
@@ -316,6 +321,30 @@ public sealed partial class EditorWindowScene
 
         _frameRenameBuffer = _frameRenameBuffer[..^1];
         RefreshPixelStudioView("Editing frame name.");
+    }
+
+    private void DeleteSelectionTransformAngleText()
+    {
+        if (ConsumeSelectedText(EditableTextTarget.TransformAngle))
+        {
+            if (_selectionTransformAngleBuffer.Length == 0)
+            {
+                return;
+            }
+
+            _selectionTransformAngleBuffer = string.Empty;
+        }
+        else
+        {
+            if (_selectionTransformAngleBuffer.Length == 0)
+            {
+                return;
+            }
+
+            _selectionTransformAngleBuffer = _selectionTransformAngleBuffer[..^1];
+        }
+
+        UpdateSelectionTransformAngleFromBuffer();
     }
 
     private void DeleteCanvasResizeText()

@@ -2,7 +2,10 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $exePath = Join-Path $projectRoot 'src\ProjectSPlus.App\bin\Debug\net8.0\ProjectSPlus.App.exe'
-$settingsPath = Join-Path $projectRoot 'src\ProjectSPlus.App\bin\Debug\net8.0\settings\appsettings.json'
+$legacySettingsPath = Join-Path $projectRoot 'src\ProjectSPlus.App\bin\Debug\net8.0\settings\appsettings.json'
+$appDataRoot = Join-Path $env:LOCALAPPDATA 'Kuma Engine'
+$settingsDirectory = Join-Path $appDataRoot 'Settings'
+$settingsPath = Join-Path $settingsDirectory 'appsettings.json'
 $defaultWidth = 1600
 $defaultHeight = 900
 $minimumWidth = 960
@@ -10,6 +13,14 @@ $minimumHeight = 600
 
 if (-not (Test-Path $exePath)) {
     throw "Project S+ executable not found at $exePath"
+}
+
+if (-not (Test-Path $settingsDirectory)) {
+    New-Item -ItemType Directory -Path $settingsDirectory -Force | Out-Null
+}
+
+if (-not (Test-Path $settingsPath) -and (Test-Path $legacySettingsPath)) {
+    Copy-Item -Path $legacySettingsPath -Destination $settingsPath -Force
 }
 
 if (Test-Path $settingsPath) {

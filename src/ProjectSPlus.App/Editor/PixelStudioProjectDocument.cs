@@ -24,6 +24,10 @@ public sealed class PixelStudioProjectDocument
 
     public bool ShowOnionSkin { get; init; } = true;
 
+    public bool ShowPreviousOnion { get; init; } = true;
+
+    public bool ShowNextOnion { get; init; }
+
     public float OnionOpacity { get; init; } = 0.42f;
 
     public bool IsPlaying { get; init; }

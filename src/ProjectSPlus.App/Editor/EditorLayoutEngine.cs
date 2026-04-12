@@ -1769,6 +1769,8 @@ public static partial class EditorLayoutEngine
                 [
                     PixelStudioAction.TogglePlayback,
                     PixelStudioAction.ToggleOnionSkin,
+                    PixelStudioAction.ToggleOnionPrevious,
+                    PixelStudioAction.ToggleOnionNext,
                     PixelStudioAction.DecreaseFrameRate,
                     PixelStudioAction.IncreaseFrameRate,
                     PixelStudioAction.DecreaseFrameDuration,
@@ -2020,6 +2022,7 @@ public static partial class EditorLayoutEngine
             canvasViewportRect,
             cellSize,
             out UiRect? selectionTransformPreviewRect,
+            out UiRect? selectionTransformAngleFieldRect,
             out List<PixelStudioSelectionHandleRect> selectionHandleRects);
 
         return new PixelStudioLayoutSnapshot
@@ -2082,6 +2085,7 @@ public static partial class EditorLayoutEngine
             BrushSizeKnobRect = brushSizeKnobRect,
             BrushPreviewRect = brushPreviewRect,
             SelectionTransformPreviewRect = selectionTransformPreviewRect,
+            SelectionTransformAngleFieldRect = selectionTransformAngleFieldRect,
             CameraZoom = camera.Zoom,
             CameraPanX = camera.PanX,
             CameraPanY = camera.PanY,
@@ -2114,9 +2118,11 @@ public static partial class EditorLayoutEngine
         UiRect canvasViewportRect,
         int cellSize,
         out UiRect? selectionTransformPreviewRect,
+        out UiRect? selectionTransformAngleFieldRect,
         out List<PixelStudioSelectionHandleRect> selectionHandleRects)
     {
         selectionTransformPreviewRect = null;
+        selectionTransformAngleFieldRect = null;
         selectionHandleRects = [];
         if (!pixelStudio.HasSelection || cellSize <= 0)
         {
@@ -2153,8 +2159,8 @@ public static partial class EditorLayoutEngine
         bool rotateOverlay = MathF.Abs(rotationDegrees) > 0.01f;
         float handleSize = Math.Clamp(MathF.Min(Math.Max(cellSize * 0.65f, 14f), 20f), 14f, 20f);
         float handleHalf = handleSize * 0.5f;
-        float centerX = selectionBoundsRect.X + (selectionBoundsRect.Width * 0.5f);
-        float centerY = selectionBoundsRect.Y + (selectionBoundsRect.Height * 0.5f);
+        float pivotCenterX = canvasViewportRect.X + (pixelStudio.SelectionTransformPivotX * cellSize);
+        float pivotCenterY = canvasViewportRect.Y + (pixelStudio.SelectionTransformPivotY * cellSize);
         float overlayWidth = Math.Max((rotateOverlay ? pixelStudio.SelectionWidth : selectionWidth) * cellSize, 1);
         float overlayHeight = Math.Max((rotateOverlay ? pixelStudio.SelectionHeight : selectionHeight) * cellSize, 1);
         float overlayHalfWidth = overlayWidth * 0.5f;
@@ -2165,11 +2171,11 @@ public static partial class EditorLayoutEngine
         float rotateHandleSize = Math.Clamp(handleSize + 2f, 16f, 22f);
         float rotateHalf = rotateHandleSize * 0.5f;
         float rotateGap = Math.Clamp((handleSize * 2.2f) + 6f, 26f, 44f);
-        static (float X, float Y) RotatePoint(float centerX, float centerY, float localX, float localY, float cos, float sin)
+        static (float X, float Y) RotatePoint(float originX, float originY, float localX, float localY, float cos, float sin)
         {
             return (
-                centerX + (localX * cos) - (localY * sin),
-                centerY + (localX * sin) + (localY * cos));
+                originX + (localX * cos) - (localY * sin),
+                originY + (localX * sin) + (localY * cos));
         }
 
         static UiRect CenterRectAt(float centerX, float centerY, float halfSize, float size)
@@ -2177,17 +2183,36 @@ public static partial class EditorLayoutEngine
             return SnapRect(new UiRect(centerX - halfSize, centerY - halfSize, size, size));
         }
 
-        (float rotateCenterX, float rotateCenterY) = RotatePoint(centerX, centerY, 0f, -overlayHalfHeight - rotateGap, cos, sin);
-        (float topLeftX, float topLeftY) = RotatePoint(centerX, centerY, -overlayHalfWidth, -overlayHalfHeight, cos, sin);
-        (float topCenterX, float topCenterY) = RotatePoint(centerX, centerY, 0f, -overlayHalfHeight, cos, sin);
-        (float topRightX, float topRightY) = RotatePoint(centerX, centerY, overlayHalfWidth, -overlayHalfHeight, cos, sin);
-        (float rightCenterX, float rightCenterY) = RotatePoint(centerX, centerY, overlayHalfWidth, 0f, cos, sin);
-        (float bottomLeftX, float bottomLeftY) = RotatePoint(centerX, centerY, -overlayHalfWidth, overlayHalfHeight, cos, sin);
-        (float bottomCenterX, float bottomCenterY) = RotatePoint(centerX, centerY, 0f, overlayHalfHeight, cos, sin);
-        (float bottomRightX, float bottomRightY) = RotatePoint(centerX, centerY, overlayHalfWidth, overlayHalfHeight, cos, sin);
-        (float leftCenterX, float leftCenterY) = RotatePoint(centerX, centerY, -overlayHalfWidth, 0f, cos, sin);
+        float localCenterX = selectionBoundsRect.X + (selectionBoundsRect.Width * 0.5f) - pivotCenterX;
+        float localCenterY = selectionBoundsRect.Y + (selectionBoundsRect.Height * 0.5f) - pivotCenterY;
+        (float pivotHandleX, float pivotHandleY) = (pivotCenterX, pivotCenterY);
+        (float rotateCenterX, float rotateCenterY) = RotatePoint(pivotCenterX, pivotCenterY, localCenterX, localCenterY - overlayHalfHeight - rotateGap, cos, sin);
+        (float topLeftX, float topLeftY) = RotatePoint(pivotCenterX, pivotCenterY, localCenterX - overlayHalfWidth, localCenterY - overlayHalfHeight, cos, sin);
+        (float topCenterX, float topCenterY) = RotatePoint(pivotCenterX, pivotCenterY, localCenterX, localCenterY - overlayHalfHeight, cos, sin);
+        (float topRightX, float topRightY) = RotatePoint(pivotCenterX, pivotCenterY, localCenterX + overlayHalfWidth, localCenterY - overlayHalfHeight, cos, sin);
+        (float rightCenterX, float rightCenterY) = RotatePoint(pivotCenterX, pivotCenterY, localCenterX + overlayHalfWidth, localCenterY, cos, sin);
+        (float bottomLeftX, float bottomLeftY) = RotatePoint(pivotCenterX, pivotCenterY, localCenterX - overlayHalfWidth, localCenterY + overlayHalfHeight, cos, sin);
+        (float bottomCenterX, float bottomCenterY) = RotatePoint(pivotCenterX, pivotCenterY, localCenterX, localCenterY + overlayHalfHeight, cos, sin);
+        (float bottomRightX, float bottomRightY) = RotatePoint(pivotCenterX, pivotCenterY, localCenterX + overlayHalfWidth, localCenterY + overlayHalfHeight, cos, sin);
+        (float leftCenterX, float leftCenterY) = RotatePoint(pivotCenterX, pivotCenterY, localCenterX - overlayHalfWidth, localCenterY, cos, sin);
+        float angleFieldWidth = 72f;
+        float angleFieldHeight = 18f;
+        float angleFieldX = Math.Clamp(
+            rotateCenterX - (angleFieldWidth * 0.5f),
+            canvasViewportRect.X + 4f,
+            canvasViewportRect.X + Math.Max(canvasViewportRect.Width - angleFieldWidth - 4f, 4f));
+        float angleFieldY = Math.Clamp(
+            rotateCenterY - rotateHandleSize - 26f,
+            canvasViewportRect.Y + 4f,
+            canvasViewportRect.Y + Math.Max(canvasViewportRect.Height - angleFieldHeight - 4f, 4f));
+        selectionTransformAngleFieldRect = SnapRect(new UiRect(angleFieldX, angleFieldY, angleFieldWidth, angleFieldHeight));
         selectionHandleRects =
         [
+            new PixelStudioSelectionHandleRect
+            {
+                Kind = PixelStudioSelectionHandleKind.Pivot,
+                Rect = CenterRectAt(pivotHandleX, pivotHandleY, handleHalf, handleSize)
+            },
             new PixelStudioSelectionHandleRect
             {
                 Kind = PixelStudioSelectionHandleKind.Rotate,

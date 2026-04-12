@@ -11,12 +11,7 @@ public static class PixelStudioRecoveryManager
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
 
-    public static string RecoveryFilePath =>
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Kuma Engine",
-            "Recovery",
-            "kearu-studio-recovery.json");
+    public static string RecoveryFilePath => AppStoragePaths.RecoveryFilePath;
 
     public static bool TryLoad(out PixelStudioRecoverySnapshot? snapshot)
     {
