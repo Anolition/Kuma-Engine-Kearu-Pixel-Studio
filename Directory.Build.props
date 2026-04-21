@@ -4,5 +4,16 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <AnalysisLevel>latest</AnalysisLevel>
     <NuGetAudit>false</NuGetAudit>
+    <Authors>Anolition</Authors>
+    <Company>Anolition</Company>
+    <Product>Kuma Engine + Kearu Pixel Studio</Product>
+    <Description>Kuma Engine with Kearu Pixel Studio, a custom C# pixel art and animation editor.</Description>
+    <RepositoryUrl>https://github.com/Anolition/Kuma-Engine-Kearu-Pixel-Studio</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <VersionPrefix Condition="'$(VersionPrefix)' == ''">0.0.35</VersionPrefix>
+    <Version Condition="'$(Version)' == ''">$(VersionPrefix)</Version>
+    <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">0.0.35.0</AssemblyVersion>
+    <FileVersion Condition="'$(FileVersion)' == ''">0.0.35.0</FileVersion>
+    <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)</InformationalVersion>
   </PropertyGroup>
 </Project>
