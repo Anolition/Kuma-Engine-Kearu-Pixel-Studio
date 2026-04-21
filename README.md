@@ -1,44 +1,92 @@
-# Project S+
+# Kuma Engine + Kearu Pixel Studio
 
-Project S+ is the working title for an open-source game engine and editor focused on a deep, node-based creation workflow.
+Kuma Engine is a custom game-creation environment currently centered on Kearu Pixel Studio, a desktop pixel art and animation editor built in C# on top of Silk.NET and OpenGL.
 
-The long-term vision is a cross-platform tool for building games with:
-- A modular 2D-first runtime
-- A desktop editor with dockable panels and tabbed workspaces
-- Visual node-based game logic
-- Built-in pixel art and animation tools
-- Future support for 3D asset import and rendering
+This repository is the active development home for the editor, runtime, and supporting tools. The public branding is now Kuma Engine + Kearu Pixel Studio, while some internal code and project names still use the earlier `ProjectSPlus` naming and will be cleaned up over time.
 
-## Initial Direction
+## Current Status
 
-- Language: `C#`
-- Platforms: `Windows` and `Linux`
-- License target: open source
-- Early focus: a stable editor shell that launches as a desktop executable
-- Current native window layer: `Silk.NET.Windowing + OpenGL`
+The current milestone is focused on making the 2D editor feel stable, understandable, and shippable. The editor currently includes:
 
-## Milestone 1 Goal
+- Pixel drawing and erasing tools
+- Selection, transform, mirror, and rotation workflows
+- Shape drawing with fill and outline modes
+- Frame-based animation editing with onion skin and playback controls
+- Layer management with grouping, locking, alpha lock, and opacity controls
+- Palette workflows with saved palettes, working palettes, recent colors, and custom themes
+- Autosave, recovery, and crash-report support
 
-Create the first usable editor shell:
-- Opens as a desktop app
-- Has a configurable main window
-- Includes a menu bar, side panels, tabs, and status bar
-- Stores baseline settings like window size and theme preferences
-- Establishes an architecture we can safely build on
-- Supports dark and light editor themes with in-app switching
-- Supports readable UI typography with configurable font family and size presets
-- Includes a visual preferences view for editor settings and shortcut editing
-- Includes a home/start surface with recent projects, starter actions, clickable tabs, and menu dropdowns
-- Includes a basic project creation form, simple folder browser, and closable scratch tabs
+## Tech Stack
+
+- C#
+- .NET 8
+- Silk.NET.Windowing
+- Silk.NET.OpenGL
+- Silk.NET.Input
+- SixLabors.ImageSharp
+
+## Running The App
+
+Prerequisites:
+
+- Windows
+- .NET SDK `8.0.419` or a compatible .NET 8 SDK
+
+Build:
+
+```powershell
+dotnet restore ProjectSPlus.sln --configfile NuGet.Config
+dotnet build ProjectSPlus.sln
+```
+
+Run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\Run-ProjectSPlus.ps1
+```
 
 ## Project Layout
 
-- `docs/` design notes, blueprints, and milestone plans
-- `src/` application and engine source code
-- `assets/` built-in editor assets such as icons, fonts, and themes
-- `tests/` automated tests
-- `tools/` helper scripts and developer utilities
+- `src/` application, editor, runtime, and shared code
+- `assets/` bundled editor assets
+- `docs/` notes, plans, and blueprints
+- `tests/` automated test projects
+- `tools/` helper utilities and scripts
 
-## Next Step
+## Data And Storage
 
-See [docs/blueprint.md](/C:/Users/mrflu/OneDrive/Documents/Codex%20Project/docs/blueprint.md) for the full Milestone 1 blueprint.
+- App-managed settings, logs, autosaves, and recovery files are stored in `%LocalAppData%\Kuma Engine`
+- User artwork and exported files are saved wherever the user chooses
+- The repository is not intended to be the place where normal user project saves live
+
+## Version History
+
+Tagged milestone versions are published in git and on GitHub:
+
+- `kuma-engine-0.0.01`
+- `kuma-engine-0.0.05`
+- `kuma-engine-0.0.10`
+- `kuma-engine-0.0.15`
+- `kuma-engine-0.0.20`
+- `kuma-engine-0.0.25`
+- `kuma-engine-0.0.30`
+- `kuma-engine-0.0.35`
+
+## Roadmap Direction
+
+The near-term goal is to finish the 2D workflow first:
+
+- transform precision and drawing workflow polish
+- stronger layer and animation control
+- reliable export and project handling
+- packaging and shipping readiness
+
+After that, the longer-term plan is to use Kuma as a bridge into game-development workflows rather than rushing into a full 3D editor too early.
+
+## Documentation
+
+- [Blueprint](docs/blueprint.md)
+
+## License Status
+
+No open-source license has been added yet. Until a license is chosen and committed, the project should be treated as all rights reserved.
