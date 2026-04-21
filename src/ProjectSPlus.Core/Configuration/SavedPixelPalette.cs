@@ -6,5 +6,7 @@ public sealed class SavedPixelPalette
 
     public string Name { get; init; } = "Palette";
 
+    public bool IsLocked { get; init; }
+
     public IReadOnlyList<PaletteColorSetting> Colors { get; init; } = [];
 }

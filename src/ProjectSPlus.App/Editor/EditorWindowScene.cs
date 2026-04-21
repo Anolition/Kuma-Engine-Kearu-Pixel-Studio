@@ -101,7 +101,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private static readonly int[] TransformRotationSnapSteps = [15, 30, 45, 90];
 
     public EditorWindowScene(EditorShell shell, string initialThemeName)
-        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, 10, 45, [], null, false)
+        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, [], 0, [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, 10, 45, [], null, false)
     {
     }
 
@@ -117,6 +117,10 @@ public sealed partial class EditorWindowScene : IWindowScene
         EditorLayoutSettings layoutSettings,
         IReadOnlyList<SavedPixelPalette> savedPixelPalettes,
         string? activePixelPaletteId,
+        IReadOnlyList<PaletteColorSetting> workingPixelPalette,
+        int workingPixelPaletteActiveIndex,
+        IReadOnlyList<PaletteColorSetting> recentPixelColors,
+        PaletteColorSetting? secondaryPixelColor,
         bool promptForPaletteGenerationAfterImport,
         PixelStudioColorPickerMode pixelColorPickerMode,
         EditorNotificationSoundMode notificationSoundMode,
@@ -185,6 +189,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _tabs = CreateDefaultTabs();
         _pixelStudio = CreateDefaultPixelStudio();
         ApplyInitialSavedPaletteIfAvailable();
+        ApplyStoredWorkingPalette(workingPixelPalette, workingPixelPaletteActiveIndex);
         if (_startupRecoverySnapshot is not null)
         {
             RestorePixelStudioRecovery(_startupRecoverySnapshot);
@@ -206,6 +211,7 @@ public sealed partial class EditorWindowScene : IWindowScene
             ResetPixelStudioRecoveryTracking(useCurrentAsSavedBaseline: false, useCurrentAsAutosavedBaseline: false);
         }
         ResetPaletteInteractionState();
+        ApplyStoredPaletteInteractionState(recentPixelColors, secondaryPixelColor);
         _uiState.ProjectForm = new EditorProjectFormState
         {
             ProjectLibraryPath = _projectLibraryPath,
@@ -863,6 +869,20 @@ public sealed partial class EditorWindowScene : IWindowScene
             return ResolveSelectionHandleCursor(selectionHandle.Kind);
         }
 
+        if (layout.LayerGroupRows.Any(row => row.Rect.Contains(mouseX, mouseY))
+            || layout.LayerRows.Any(row => row.Rect.Contains(mouseX, mouseY))
+            || layout.FrameRows.Any(row => row.Rect.Contains(mouseX, mouseY)))
+        {
+            return StandardCursor.Hand;
+        }
+
+        if (TryGetMirrorAxisHandle(layout, mouseX, mouseY, out PixelStudioMirrorAxisKind mirrorAxisKind))
+        {
+            return mirrorAxisKind == PixelStudioMirrorAxisKind.Vertical
+                ? StandardCursor.HResize
+                : StandardCursor.VResize;
+        }
+
         if (layout.CanvasClipRect.Contains(mouseX, mouseY))
         {
             if (_pixelStudio.ActiveTool == PixelStudioToolKind.Hand || _pixelDragMode == PixelStudioDragMode.PanCanvas)
@@ -900,6 +920,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         return handleKind switch
         {
             PixelStudioSelectionHandleKind.Rotate => StandardCursor.Crosshair,
+            PixelStudioSelectionHandleKind.Pivot => StandardCursor.ResizeAll,
             PixelStudioSelectionHandleKind.Top or PixelStudioSelectionHandleKind.Bottom => StandardCursor.VResize,
             PixelStudioSelectionHandleKind.Left or PixelStudioSelectionHandleKind.Right => StandardCursor.HResize,
             PixelStudioSelectionHandleKind.TopLeft or PixelStudioSelectionHandleKind.BottomRight => StandardCursor.NwseResize,
@@ -1032,6 +1053,16 @@ public sealed partial class EditorWindowScene : IWindowScene
             },
             PixelPalettes = _savedPixelPalettes.Select(CloneSavedPixelPalette).ToList(),
             ActivePixelPaletteId = _activePixelPaletteId,
+            PixelWorkingPalette = string.IsNullOrWhiteSpace(_currentPixelDocumentPath)
+                ? _pixelStudio.Palette.Select(ToPaletteColorSetting).ToList()
+                : [],
+            PixelWorkingPaletteActiveIndex = string.IsNullOrWhiteSpace(_currentPixelDocumentPath)
+                ? _pixelStudio.ActivePaletteIndex
+                : 0,
+            PixelRecentColors = _recentPaletteColors.Select(ToPaletteColorSetting).ToList(),
+            PixelSecondaryColor = _secondaryPaletteColorInitialized
+                ? ToPaletteColorSetting(_secondaryPaletteColor)
+                : null,
             PromptForPaletteGenerationAfterImport = _promptForPaletteGenerationAfterImport,
             PixelColorPickerMode = _pixelColorPickerMode,
             NotificationSoundMode = _notificationSoundMode,
@@ -1375,7 +1406,9 @@ public sealed partial class EditorWindowScene : IWindowScene
 
         RecentProjectEntry project = _recentProjects[index];
         AddRecentProject(project);
-        _lastProjectPath = project.Path;
+        _lastProjectPath = File.Exists(project.Path)
+            ? Path.GetDirectoryName(project.Path)
+            : project.Path;
         _currentPixelDocumentPath = FindPreferredPixelStudioDocument(project.Path);
         string status = !string.IsNullOrWhiteSpace(_currentPixelDocumentPath) && TryLoadPixelStudioDocument(_currentPixelDocumentPath, out string loadStatus)
             ? loadStatus

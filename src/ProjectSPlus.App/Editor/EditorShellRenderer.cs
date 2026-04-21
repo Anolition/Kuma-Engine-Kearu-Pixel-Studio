@@ -334,7 +334,13 @@ public sealed class EditorShellRenderer : IDisposable
         {
             UiRect paletteBodyRect = GetPixelPanelBodyRect(layout.PalettePanelRect);
             ThemeColor paletteSectionColor = Blend(_theme.SidePanel, _theme.Workspace, 0.26f);
-            ActionRect<PixelStudioAction> addSwatchButton = layout.PaletteButtons.First(button => button.Action == PixelStudioAction.AddPaletteSwatch);
+            IReadOnlyList<ActionRect<PixelStudioAction>> paletteActionButtons = layout.PaletteButtons
+                .Where(button => button.Action is PixelStudioAction.AddPaletteSwatch
+                    or PixelStudioAction.GeneratePaletteRamp
+                    or PixelStudioAction.GeneratePaletteFromImage
+                    or PixelStudioAction.TogglePaletteLibrary)
+                .ToList();
+            ActionRect<PixelStudioAction> addSwatchButton = paletteActionButtons.First(button => button.Action == PixelStudioAction.AddPaletteSwatch);
             float pickerBottom = layout.RecentColorSwatches.Count > 0
                 ? layout.RecentColorSwatches.Max(entry => entry.Rect.Y + entry.Rect.Height)
                 : layout.PaletteAlphaSliderRect is not null
@@ -347,8 +353,10 @@ public sealed class EditorShellRenderer : IDisposable
             float swatchSectionY = pickerBottom + 24;
             float activeSectionBottom = pickerBottom;
             UiRect activeSectionRect = new(paletteBodyRect.X, paletteBodyRect.Y, paletteBodyRect.Width, Math.Max(activeSectionBottom - paletteBodyRect.Y + 10, 132));
-            UiRect swatchSectionRect = new(paletteBodyRect.X, swatchSectionY, paletteBodyRect.Width, Math.Max(addSwatchButton.Rect.Y - swatchSectionY - 14, 52));
-            UiRect actionSectionRect = new(paletteBodyRect.X, addSwatchButton.Rect.Y - 24, paletteBodyRect.Width, addSwatchButton.Rect.Height + 32);
+            float actionTop = paletteActionButtons.Min(button => button.Rect.Y);
+            float actionBottom = paletteActionButtons.Max(button => button.Rect.Y + button.Rect.Height);
+            UiRect swatchSectionRect = new(paletteBodyRect.X, swatchSectionY, paletteBodyRect.Width, Math.Max(actionTop - swatchSectionY - 18, 52));
+            UiRect actionSectionRect = new(paletteBodyRect.X, actionTop - 14, paletteBodyRect.Width, (actionBottom - actionTop) + 26);
             DrawUiRect(activeSectionRect, paletteSectionColor);
             DrawUiRect(swatchSectionRect, paletteSectionColor);
             DrawUiRect(actionSectionRect, paletteSectionColor);
@@ -428,15 +436,33 @@ public sealed class EditorShellRenderer : IDisposable
             foreach (IndexedRect row in layout.SavedPaletteRows)
             {
                 bool isDefaultPaletteRow = row.Index < 0;
-                bool isSelectedSavedPalette = row.Index >= 0
+                bool isSelectedSavedPalette = isDefaultPaletteRow
+                    ? _uiState.PixelStudio.DefaultPaletteSelected
+                    : row.Index >= 0
                     && row.Index < _uiState.PixelStudio.SavedPalettes.Count
                     && _uiState.PixelStudio.SavedPalettes[row.Index].IsSelected;
-                ThemeColor rowColor = isDefaultPaletteRow
-                    ? Blend(_theme.TabInactive, _theme.Accent, 0.10f)
+                bool isActiveSavedPalette = isDefaultPaletteRow
+                    ? _uiState.PixelStudio.DefaultPaletteActive
+                    : row.Index >= 0
+                    && row.Index < _uiState.PixelStudio.SavedPalettes.Count
+                    && _uiState.PixelStudio.SavedPalettes[row.Index].IsActive;
+                ThemeColor rowColor = isSelectedSavedPalette && isActiveSavedPalette
+                    ? Blend(_theme.Accent, _theme.TabActive, 0.30f)
                     : isSelectedSavedPalette
                         ? _theme.TabActive
-                        : _theme.TabInactive;
+                        : isActiveSavedPalette
+                            ? Blend(_theme.TabInactive, _theme.Accent, 0.20f)
+                            : isDefaultPaletteRow
+                                ? Blend(_theme.TabInactive, _theme.Accent, 0.10f)
+                                : _theme.TabInactive;
                 DrawUiRect(row.Rect, rowColor);
+                if (isSelectedSavedPalette || isActiveSavedPalette)
+                {
+                    ThemeColor markerColor = isActiveSavedPalette
+                        ? _theme.Accent
+                        : Blend(_theme.Accent, _theme.TabActive, 0.45f);
+                    DrawUiRect(new UiRect(row.Rect.X, row.Rect.Y, 4f, row.Rect.Height), markerColor);
+                }
             }
         }
 
@@ -471,9 +497,23 @@ public sealed class EditorShellRenderer : IDisposable
             }
 
             UiRect rect = layout.PaletteSwatches[index].Rect;
-            ThemeColor border = paletteIndex == _uiState.PixelStudio.ActivePaletteIndex ? _theme.Accent : _theme.Divider;
+            bool reorderSource = _uiState.PixelStudio.PaletteReorderActive && paletteIndex == _uiState.PixelStudio.PaletteReorderSourceIndex;
+            bool reorderTarget = _uiState.PixelStudio.PaletteReorderActive && paletteIndex == _uiState.PixelStudio.PaletteReorderTargetIndex;
+            ThemeColor border = reorderTarget
+                ? Blend(_theme.Accent, new ThemeColor(0.96f, 0.97f, 0.99f, 1f), 0.26f)
+                : paletteIndex == _uiState.PixelStudio.ActivePaletteIndex
+                    ? _theme.Accent
+                    : reorderSource
+                        ? Blend(_theme.Accent, _theme.Divider, 0.38f)
+                        : _theme.Divider;
+            ThemeColor swatchColor = _uiState.PixelStudio.Palette[paletteIndex];
+            if (reorderSource)
+            {
+                swatchColor = Blend(swatchColor, _theme.MenuBar, 0.18f);
+            }
+
             DrawUiRect(rect, border);
-            DrawUiRect(new UiRect(rect.X + 3, rect.Y + 3, rect.Width - 6, rect.Height - 6), _uiState.PixelStudio.Palette[paletteIndex]);
+            DrawUiRect(new UiRect(rect.X + 3, rect.Y + 3, rect.Width - 6, rect.Height - 6), swatchColor);
         }
 
         ThemeColor checkerLight = canvasCheckerLight;
@@ -669,11 +709,21 @@ public sealed class EditorShellRenderer : IDisposable
             if (layout.BrushPreviewRect is not null)
             {
                 DrawRoundedUiRect(layout.BrushPreviewRect.Value, new ThemeColor(0.11f, 0.11f, 0.12f, 1.0f), layout.BrushPreviewRect.Value.Width * 0.5f);
-                float dotSize = Math.Clamp(_uiState.PixelStudio.BrushSize * 2f, 6f, Math.Max(layout.BrushPreviewRect.Value.Width - 10, 6f));
-                float dotX = layout.BrushPreviewRect.Value.X + ((layout.BrushPreviewRect.Value.Width - dotSize) * 0.5f);
-                float dotY = layout.BrushPreviewRect.Value.Y + ((layout.BrushPreviewRect.Value.Height - dotSize) * 0.5f);
-                DrawRoundedUiRect(new UiRect(dotX, dotY, dotSize, dotSize), _theme.Accent, Math.Max(dotSize * 0.22f, 2f));
+                DrawBrushPreviewGlyph(layout.BrushPreviewRect.Value);
             }
+        }
+
+        foreach (PixelStudioLayerGroupHeaderRect groupRow in layout.LayerGroupRows)
+        {
+            ThemeColor groupColor = Blend(_theme.MenuBar, _theme.TabInactive, 0.42f);
+            if (_uiState.PixelStudio.LayerReorderActive
+                && string.Equals(_uiState.PixelStudio.LayerReorderJoinGroupId, groupRow.GroupId, StringComparison.Ordinal))
+            {
+                groupColor = Blend(_theme.Accent, _theme.TabActive, 0.34f);
+            }
+
+            DrawUiRect(groupRow.Rect, groupColor);
+            DrawRoundedUiRect(groupRow.ToggleRect, Blend(_theme.TabInactive, _theme.MenuBar, 0.18f), 5f);
         }
 
         foreach (IndexedRect row in layout.LayerRows)
@@ -681,7 +731,17 @@ public sealed class EditorShellRenderer : IDisposable
             ThemeColor color = row.Index < _uiState.PixelStudio.Layers.Count && _uiState.PixelStudio.Layers[row.Index].IsActive
                 ? _theme.TabActive
                 : _theme.TabInactive;
+            if (_uiState.PixelStudio.LayerReorderActive && row.Index == _uiState.PixelStudio.LayerReorderSourceIndex)
+            {
+                color = Blend(_theme.Accent, _theme.TabActive, 0.30f);
+            }
             DrawUiRect(row.Rect, color);
+        }
+
+        UiRect? layerReorderIndicatorRect = ResolveLayerReorderIndicatorRect(layout);
+        if (layerReorderIndicatorRect is not null)
+        {
+            DrawRoundedUiRect(layerReorderIndicatorRect.Value, Blend(_theme.Accent, _theme.TabActive, 0.62f), 4f);
         }
 
         foreach (IndexedRect button in layout.LayerVisibilityButtons)
@@ -705,7 +765,17 @@ public sealed class EditorShellRenderer : IDisposable
             ThemeColor color = frame.Index < _uiState.PixelStudio.Frames.Count && _uiState.PixelStudio.Frames[frame.Index].IsPreviewing
                 ? _theme.TabActive
                 : _theme.TabInactive;
+            if (_uiState.PixelStudio.FrameReorderActive && frame.Index == _uiState.PixelStudio.FrameReorderSourceIndex)
+            {
+                color = Blend(_theme.Accent, _theme.TabActive, 0.30f);
+            }
             DrawUiRect(frame.Rect, color);
+        }
+
+        UiRect? frameReorderIndicatorRect = ResolveFrameReorderIndicatorRect(layout);
+        if (frameReorderIndicatorRect is not null)
+        {
+            DrawRoundedUiRect(frameReorderIndicatorRect.Value, Blend(_theme.Accent, _theme.TabActive, 0.62f), 4f);
         }
 
         DrawScrollRegion(layout.PaletteSwatchScrollTrackRect, layout.PaletteSwatchScrollThumbRect);
@@ -1604,7 +1674,7 @@ public sealed class EditorShellRenderer : IDisposable
         UiRect canvasHeaderControlsRect = GetUnionRect(layout.CanvasButtons.Select(button => button.Rect).Concat(layout.SelectionButtons.Select(button => button.Rect)));
         UiRect canvasTitleRect = GetHeaderTitleRect(canvasHeaderRect, canvasHeaderControlsRect);
         float framesAccessoryWidth = Math.Min(72f, Math.Max(framesHeaderRect.Width - 64f, 0f));
-        UiRect framesAccessoryRect = new(
+        UiRect framesAccessoryRect = layout.FrameDurationFieldRect ?? new(
             framesHeaderRect.X + Math.Max(framesHeaderRect.Width - framesAccessoryWidth - 10f, 0f),
             framesHeaderRect.Y,
             framesAccessoryWidth,
@@ -1616,7 +1686,14 @@ public sealed class EditorShellRenderer : IDisposable
         bool timelineVisible = layout.TimelinePanelRect.Height > 0;
 
         DrawTextInRect(EditorBranding.PixelToolName, titleFont, bodyText, new UiRect(layout.HeaderRect.X + 14, layout.HeaderRect.Y, 164, layout.HeaderRect.Height), 0, 6);
-        string autosaveHeaderLabel = $"Auto {_uiState.AutosaveLabel}";
+        string autosaveHeaderLabel = pixelStudio.AutosavePending && pixelStudio.AutosaveCountdownSeconds > 0
+            ? $"Auto in {pixelStudio.AutosaveCountdownSeconds}s"
+            : $"Auto {_uiState.AutosaveLabel}";
+        float autosaveBadgeWidth = pixelStudio.AutosaveEnabled
+            ? GetHeaderStatusBadgeWidth(autosaveHeaderLabel, statusFont, pixelStudio.AutosavePending ? 106f : 88f)
+            : 0f;
+        float recoveryBadgeWidth = GetHeaderStatusBadgeWidth("Recovered", statusFont, 100f);
+        float unsavedBadgeWidth = GetHeaderStatusBadgeWidth("Unsaved", statusFont, 94f);
         float statusStripRight = layout.HeaderRect.X + layout.HeaderRect.Width - 14f;
         float statusStripLeft = statusStripRight;
         if (pixelStudio.AutosaveEnabled)
@@ -1626,17 +1703,17 @@ public sealed class EditorShellRenderer : IDisposable
 
         if (pixelStudio.RecoveryBannerVisible)
         {
-            statusStripLeft -= GetHeaderStatusBadgeWidth("Recovered", statusFont, 86f) + 8f;
+            statusStripLeft -= recoveryBadgeWidth + 8f;
         }
 
         if (pixelStudio.AutosaveEnabled)
         {
-            statusStripLeft -= GetHeaderStatusBadgeWidth(autosaveHeaderLabel, statusFont, 82f) + 8f;
+            statusStripLeft -= autosaveBadgeWidth + 8f;
         }
 
         if (pixelStudio.HasUnsavedChanges)
         {
-            statusStripLeft -= GetHeaderStatusBadgeWidth("Unsaved", statusFont, 84f) + 8f;
+            statusStripLeft -= unsavedBadgeWidth + 8f;
         }
 
         float documentInfoRight = Math.Max(statusStripLeft - 8f, layout.HeaderRect.X + 210f);
@@ -1658,7 +1735,7 @@ public sealed class EditorShellRenderer : IDisposable
 
         if (pixelStudio.RecoveryBannerVisible)
         {
-            headerBadgeRight = DrawHeaderStatusBadgeRightAligned(headerBadgeRight, stateBadgeY, "Recovered", statusFont, statusText, Blend(_theme.Accent, _theme.TabActive, 0.14f), 86f) - 8f;
+            headerBadgeRight = DrawHeaderStatusBadgeRightAligned(headerBadgeRight, stateBadgeY, "Recovered", statusFont, statusText, Blend(_theme.Accent, _theme.TabActive, 0.18f), recoveryBadgeWidth) - 8f;
         }
 
         if (pixelStudio.AutosaveEnabled)
@@ -1666,12 +1743,12 @@ public sealed class EditorShellRenderer : IDisposable
             ThemeColor autosaveBadgeColor = pixelStudio.AutosavePending
                 ? Blend(_theme.Accent, _theme.TabActive, 0.18f)
                 : Blend(_theme.TabInactive, _theme.MenuBar, 0.30f);
-            headerBadgeRight = DrawHeaderStatusBadgeRightAligned(headerBadgeRight, stateBadgeY, autosaveHeaderLabel, statusFont, statusText, autosaveBadgeColor, 82f) - 8f;
+            headerBadgeRight = DrawHeaderStatusBadgeRightAligned(headerBadgeRight, stateBadgeY, autosaveHeaderLabel, statusFont, statusText, autosaveBadgeColor, autosaveBadgeWidth) - 8f;
         }
 
         if (pixelStudio.HasUnsavedChanges)
         {
-            DrawHeaderStatusBadgeRightAligned(headerBadgeRight, stateBadgeY, "Unsaved", statusFont, bodyText, Blend(_theme.Accent, _theme.TabActive, 0.30f), 84f);
+            DrawHeaderStatusBadgeRightAligned(headerBadgeRight, stateBadgeY, "Unsaved", statusFont, bodyText, Blend(_theme.Accent, _theme.TabActive, 0.34f), unsavedBadgeWidth);
         }
 
         foreach (ActionRect<PixelStudioAction> button in layout.DocumentButtons)
@@ -1702,15 +1779,32 @@ public sealed class EditorShellRenderer : IDisposable
             DrawTextInRect("Ctrl+Z undo, Ctrl+Y redo, Ctrl+C/X/V selection, Ctrl+D deselect.", statusFont, statusText, new UiRect(canvasBodyRect.X, canvasBodyRect.Y, canvasBodyRect.Width, 18), 0, 0);
         }
 
+        float bannerY = canvasBodyRect.Y + 22f;
         if (pixelStudio.RecoveryBannerVisible && !string.IsNullOrWhiteSpace(pixelStudio.RecoveryBannerText))
         {
             UiRect recoveryBannerRect = new(
                 canvasBodyRect.X,
-                canvasBodyRect.Y + 22f,
-                Math.Min(canvasBodyRect.Width, 328f),
-                22f);
-            DrawRoundedUiRect(recoveryBannerRect, Blend(_theme.Accent, _theme.TabActive, 0.12f), 10f);
-            DrawTextClippedInRect(pixelStudio.RecoveryBannerText, statusFont, statusText, recoveryBannerRect, 10f, 3f);
+                bannerY,
+                Math.Min(Math.Max(canvasBodyRect.Width - 8f, 0f), 420f),
+                26f);
+            DrawRoundedUiRect(recoveryBannerRect, Blend(_theme.Accent, _theme.TabActive, 0.16f), 11f);
+            DrawTextClippedInRect(pixelStudio.RecoveryBannerText, statusFont, statusText, recoveryBannerRect, 12f, 5f);
+            bannerY = recoveryBannerRect.Y + recoveryBannerRect.Height + 8f;
+        }
+
+        if (pixelStudio.AutosaveBannerVisible && !string.IsNullOrWhiteSpace(pixelStudio.AutosaveBannerText))
+        {
+            ThemeColor autosaveBannerColor = pixelStudio.AutosavePending
+                ? Blend(_theme.Accent, _theme.MenuBar, 0.24f)
+                : Blend(new ThemeColor(0.38f, 0.82f, 0.58f, 1f), _theme.MenuBar, 0.34f);
+            UiRect autosaveBannerRect = new(
+                canvasBodyRect.X,
+                bannerY,
+                Math.Min(Math.Max(canvasBodyRect.Width - 8f, 0f), 404f),
+                24f);
+            DrawRoundedUiRect(autosaveBannerRect, autosaveBannerColor, 11f);
+            DrawTextClippedInRect(pixelStudio.AutosaveBannerText, statusFont, statusText, autosaveBannerRect, 12f, 4f);
+            bannerY = autosaveBannerRect.Y + autosaveBannerRect.Height + 8f;
         }
 
         if (pixelStudio.WarningToastVisible && !string.IsNullOrWhiteSpace(pixelStudio.WarningToastText))
@@ -1718,7 +1812,7 @@ public sealed class EditorShellRenderer : IDisposable
             float toastWidth = Math.Min(Math.Max((pixelStudio.WarningToastText.Length * 7.2f) + 28f, 220f), Math.Max(canvasBodyRect.Width - 24f, 220f));
             UiRect toastRect = new(
                 canvasBodyRect.X + Math.Max((canvasBodyRect.Width - toastWidth) * 0.5f, 8f),
-                canvasBodyRect.Y + 24f,
+                bannerY + 2f,
                 toastWidth,
                 30f);
             DrawRoundedUiRect(toastRect, Blend(_theme.MenuBar, _theme.Accent, 0.22f), 12f);
@@ -1777,8 +1871,15 @@ public sealed class EditorShellRenderer : IDisposable
                             : layout.PaletteColorFieldRect is not null
                                 ? layout.PaletteColorFieldRect.Value.Y + layout.PaletteColorFieldRect.Value.Height
                                 : layout.ActiveColorRect.Y + layout.ActiveColorRect.Height;
-                float colorsLabelY = colorControlsBottom + 8;
-                DrawTextInRect("Colors", statusFont, statusText, new UiRect(paletteBodyRect.X, colorsLabelY, paletteBodyRect.Width, 18), 0, 0);
+                float colorsLabelY = layout.PaletteSwatches.Count > 0
+                    ? layout.PaletteSwatches.Min(entry => entry.Rect.Y) - 20f
+                    : layout.PaletteButtons.Count > 0
+                        ? layout.PaletteButtons.Min(entry => entry.Rect.Y) - 20f
+                        : colorControlsBottom + 8f;
+                if (colorsLabelY >= colorControlsBottom + 4f)
+                {
+                    DrawTextInRect("Colors", statusFont, statusText, new UiRect(paletteBodyRect.X, colorsLabelY, paletteBodyRect.Width, 18), 0, 0);
+                }
             }
             foreach (ActionRect<PixelStudioAction> button in layout.PaletteButtons)
             {
@@ -1809,16 +1910,62 @@ public sealed class EditorShellRenderer : IDisposable
                 UiRect rowRect = row.Rect;
                 if (row.Index < 0)
                 {
-                    DrawTextInRect("Default Palette", bodyFont, bodyText, rowRect, 8, 6);
-                    DrawTextInRect("Built-in", statusFont, statusText, new UiRect(rowRect.X + Math.Max(rowRect.Width - 58, 0), rowRect.Y, 50, rowRect.Height), 0, 6);
+                    bool defaultSelected = pixelStudio.DefaultPaletteSelected;
+                    bool defaultActive = pixelStudio.DefaultPaletteActive;
+                    float defaultContentRight = rowRect.X + rowRect.Width - 8f;
+                    if (defaultActive)
+                    {
+                        UiRect activeBadgeRect = new(defaultContentRight - 42f, rowRect.Y + 5f, 42f, 18f);
+                        DrawRoundedUiRect(activeBadgeRect, Blend(_theme.Accent, _theme.TabActive, 0.22f), 9f);
+                        DrawCenteredTextClippedInRect("Active", statusFont, statusText, activeBadgeRect, 4f, 3f);
+                        defaultContentRight = activeBadgeRect.X - 4f;
+                    }
+
+                    if (!defaultActive && defaultSelected)
+                    {
+                        UiRect editBadgeRect = new(defaultContentRight - 34f, rowRect.Y + 5f, 34f, 18f);
+                        DrawRoundedUiRect(editBadgeRect, Blend(_theme.TabActive, _theme.Accent, 0.16f), 9f);
+                        DrawCenteredTextClippedInRect("Edit", statusFont, statusText, editBadgeRect, 4f, 3f);
+                        defaultContentRight = editBadgeRect.X - 4f;
+                    }
+
+                    UiRect defaultRowLabelRect = new(rowRect.X, rowRect.Y, Math.Max(defaultContentRight - rowRect.X, 48f), rowRect.Height);
+                    DrawTextClippedInRect("Default Palette", bodyFont, bodyText, defaultRowLabelRect, 8, 6);
                     continue;
                 }
 
                 PixelStudioSavedPaletteView palette = pixelStudio.SavedPalettes[row.Index];
-                DrawTextInRect(palette.Name, bodyFont, bodyText, rowRect, 8, 6);
+                float contentRight = rowRect.X + rowRect.Width - 8f;
+                if (palette.IsLocked)
+                {
+                    UiRect lockBadgeRect = new(contentRight - 34f, rowRect.Y + 5f, 34f, 18f);
+                    DrawRoundedUiRect(lockBadgeRect, Blend(_theme.Accent, _theme.TabActive, 0.18f), 9f);
+                    DrawCenteredTextClippedInRect("Lock", statusFont, statusText, lockBadgeRect, 4f, 3f);
+                    contentRight = lockBadgeRect.X - 4f;
+                }
 
-                float previewX = rowRect.X + rowRect.Width - 58;
-                for (int colorIndex = 0; colorIndex < Math.Min(palette.PreviewColors.Count, 4); colorIndex++)
+                if (palette.IsActive)
+                {
+                    UiRect activeBadgeRect = new(contentRight - 42f, rowRect.Y + 5f, 42f, 18f);
+                    DrawRoundedUiRect(activeBadgeRect, Blend(_theme.Accent, _theme.TabActive, 0.22f), 9f);
+                    DrawCenteredTextClippedInRect("Active", statusFont, statusText, activeBadgeRect, 4f, 3f);
+                    contentRight = activeBadgeRect.X - 4f;
+                }
+                else if (palette.IsSelected)
+                {
+                    UiRect editBadgeRect = new(contentRight - 34f, rowRect.Y + 5f, 34f, 18f);
+                    DrawRoundedUiRect(editBadgeRect, Blend(_theme.TabActive, _theme.Accent, 0.16f), 9f);
+                    DrawCenteredTextClippedInRect("Edit", statusFont, statusText, editBadgeRect, 4f, 3f);
+                    contentRight = editBadgeRect.X - 4f;
+                }
+
+                int previewCount = Math.Min(palette.PreviewColors.Count, 4);
+                float previewWidth = previewCount > 0 ? ((previewCount * 12f) - 2f) : 0f;
+                float previewX = contentRight - previewWidth;
+                UiRect rowLabelRect = new(rowRect.X, rowRect.Y, Math.Max(previewX - rowRect.X, 48f), rowRect.Height);
+                DrawTextClippedInRect(palette.Name, bodyFont, bodyText, rowLabelRect, 8, 6);
+
+                for (int colorIndex = 0; colorIndex < previewCount; colorIndex++)
                 {
                     DrawUiRect(new UiRect(previewX + (colorIndex * 12), rowRect.Y + 7, 10, 14), palette.PreviewColors[colorIndex]);
                 }
@@ -1875,8 +2022,32 @@ public sealed class EditorShellRenderer : IDisposable
         }
         if (layout.LayerRenameFieldRect is not null)
         {
-            string renameText = string.IsNullOrWhiteSpace(pixelStudio.LayerRenameBuffer) ? "Type a new layer name..." : pixelStudio.LayerRenameBuffer;
+            string renameText = string.IsNullOrWhiteSpace(pixelStudio.LayerRenameBuffer)
+                ? pixelStudio.LayerRenameTargetsGroup
+                    ? "Type a new group name..."
+                    : "Type a new layer name..."
+                : pixelStudio.LayerRenameBuffer;
             DrawEditableTextInRect(renameText, bodyFont, bodyText, layout.LayerRenameFieldRect.Value, 8, 7, pixelStudio.LayerRenameActive, pixelStudio.LayerRenameSelected);
+        }
+        foreach (PixelStudioLayerGroupHeaderRect groupRow in layout.LayerGroupRows)
+        {
+            UiRect toggleRect = groupRow.ToggleRect;
+            DrawCenteredTextClippedInRect(groupRow.IsCollapsed ? "+" : "-", statusFont, bodyText, toggleRect, 4, 4);
+
+            UiRect countBadgeRect = new(
+                groupRow.Rect.X + groupRow.Rect.Width - 52f,
+                groupRow.Rect.Y + 6f,
+                44f,
+                Math.Max(groupRow.Rect.Height - 12f, 0f));
+            DrawRoundedUiRect(countBadgeRect, Blend(_theme.Accent, _theme.TabActive, 0.18f), 6f);
+            DrawCenteredTextClippedInRect($"{groupRow.MemberCount}", statusFont, bodyText, countBadgeRect, 4, 4);
+
+            UiRect headerTextRect = new(
+                toggleRect.X + toggleRect.Width + 8f,
+                groupRow.Rect.Y,
+                Math.Max(countBadgeRect.X - (toggleRect.X + toggleRect.Width + 14f), 20f),
+                groupRow.Rect.Height);
+            DrawTextInRect(groupRow.GroupName, bodyFont, bodyText, headerTextRect, 0, 7);
         }
         for (int index = 0; index < layout.LayerRows.Count && index < pixelStudio.Layers.Count; index++)
         {
@@ -1919,12 +2090,12 @@ public sealed class EditorShellRenderer : IDisposable
             if (layer.IsSharedAcrossFrames)
             {
                 UiRect sharedBadgeRect = new(
-                    badgeRight - 36f,
+                    badgeRight - 58f,
                     layerTextRect.Y + 6f,
-                    36f,
+                    58f,
                     Math.Max(layerTextRect.Height - 12f, 0f));
                 DrawRoundedUiRect(sharedBadgeRect, Blend(_theme.Accent, _theme.TabActive, 0.28f), 6f);
-                DrawCenteredTextClippedInRect("All", statusFont, bodyText, sharedBadgeRect, 4, 4);
+                DrawCenteredTextClippedInRect("Shared", statusFont, bodyText, sharedBadgeRect, 4, 4);
                 badgeRight = sharedBadgeRect.X - 6f;
             }
 
@@ -1936,9 +2107,37 @@ public sealed class EditorShellRenderer : IDisposable
         {
             DrawTextInRect("Frames", titleFont, bodyText, framesTitleRect, 0, 7);
             PixelStudioFrameView? activeFrame = pixelStudio.Frames.FirstOrDefault(frame => frame.IsActive) ?? pixelStudio.Frames.FirstOrDefault();
-            if (activeFrame is not null)
+            if (activeFrame is not null && layout.FrameDurationFieldRect is not null)
             {
-                DrawCenteredTextClippedInRect($"{activeFrame.DurationMilliseconds}ms", statusFont, statusText, framesAccessoryRect, 4, 8);
+                UiRect durationFieldRect = SnapRect(layout.FrameDurationFieldRect.Value);
+                ThemeColor durationFieldFill = pixelStudio.FrameDurationFieldActive
+                    ? Blend(_theme.TabActive, _theme.Accent, 0.18f)
+                    : Blend(_theme.TabInactive, _theme.MenuBar, 0.10f);
+                DrawRoundedUiRect(durationFieldRect, durationFieldFill, 8f);
+
+                string durationFieldText = pixelStudio.FrameDurationFieldActive
+                    ? pixelStudio.FrameDurationBuffer
+                    : activeFrame.DurationMilliseconds.ToString(CultureInfo.InvariantCulture);
+                UiRect durationInlineRect = new(
+                    durationFieldRect.X + 8f,
+                    durationFieldRect.Y,
+                    Math.Max(durationFieldRect.Width - 16f, 0f),
+                    durationFieldRect.Height);
+                if (pixelStudio.FrameDurationFieldActive)
+                {
+                    DrawEditableTextInRect(durationFieldText, bodyFont, bodyText, durationInlineRect, 0f, 2f, true, pixelStudio.FrameDurationFieldSelected);
+                    float unitOffset = MathF.Min(36f, Math.Max(durationInlineRect.Width - 18f, 18f));
+                    UiRect durationUnitRect = new(
+                        durationInlineRect.X + unitOffset,
+                        durationInlineRect.Y,
+                        Math.Max(durationInlineRect.Width - unitOffset, 0f),
+                        durationInlineRect.Height);
+                    DrawTextInRect("ms", statusFont, statusText, durationUnitRect, 0f, 4f);
+                }
+                else
+                {
+                    DrawTextInRect($"{durationFieldText} ms", bodyFont, bodyText, durationInlineRect, 0f, 3f);
+                }
             }
             foreach (ActionRect<PixelStudioAction> button in layout.TimelineButtons)
             {
@@ -1948,9 +2147,9 @@ public sealed class EditorShellRenderer : IDisposable
             {
                 UiRect sliderRect = layout.OnionOpacitySliderRect.Value;
                 UiRect onionValueRect = new(
-                    sliderRect.X - 4f,
-                    sliderRect.Y - 18f,
-                    sliderRect.Width + 8f,
+                    Math.Max(sliderRect.X - 36f, layout.TimelinePanelRect.X + 6f),
+                    sliderRect.Y - 3f,
+                    32f,
                     14f);
                 DrawCenteredTextClippedInRect(
                     $"{MathF.Round(pixelStudio.OnionOpacity * 100f)}%",
@@ -1996,8 +2195,66 @@ public sealed class EditorShellRenderer : IDisposable
                     continue;
                 }
 
+                UiRect frameTextRect = layout.FrameRows[index].Rect;
+                if (pixelStudio.Frames[frameIndex].IsInLoopRange)
+                {
+                    UiRect loopAccentRect = new(
+                        layout.FrameRows[index].Rect.X + 4f,
+                        layout.FrameRows[index].Rect.Y + 4f,
+                        4f,
+                        Math.Max(layout.FrameRows[index].Rect.Height - 8f, 0f));
+                    DrawRoundedUiRect(
+                        loopAccentRect,
+                        pixelStudio.Frames[frameIndex].IsLoopStart || pixelStudio.Frames[frameIndex].IsLoopEnd
+                            ? Blend(_theme.Accent, _theme.TabActive, 0.34f)
+                            : Blend(_theme.Accent, _theme.TabInactive, 0.24f),
+                        3f);
+                }
+
+                float badgeRight = layout.FrameRows[index].Rect.X + layout.FrameRows[index].Rect.Width - 8f;
+                if (pixelStudio.Frames[frameIndex].IsLoopStart && pixelStudio.Frames[frameIndex].IsLoopEnd)
+                {
+                    UiRect loopSingleBadgeRect = new(
+                        badgeRight - 42f,
+                        layout.FrameRows[index].Rect.Y + 6f,
+                        42f,
+                        Math.Max(layout.FrameRows[index].Rect.Height - 12f, 0f));
+                    DrawRoundedUiRect(loopSingleBadgeRect, Blend(_theme.Accent, _theme.TabActive, 0.34f), 6f);
+                    DrawCenteredTextClippedInRect("Loop", statusFont, bodyText, loopSingleBadgeRect, 4f, 4f);
+                    badgeRight = loopSingleBadgeRect.X - 4f;
+                }
+                else if (pixelStudio.Frames[frameIndex].IsLoopEnd)
+                {
+                    UiRect loopOutBadgeRect = new(
+                        badgeRight - 34f,
+                        layout.FrameRows[index].Rect.Y + 6f,
+                        34f,
+                        Math.Max(layout.FrameRows[index].Rect.Height - 12f, 0f));
+                    DrawRoundedUiRect(loopOutBadgeRect, Blend(_theme.Accent, _theme.TabInactive, 0.28f), 6f);
+                    DrawCenteredTextClippedInRect("OUT", statusFont, bodyText, loopOutBadgeRect, 4f, 4f);
+                    badgeRight = loopOutBadgeRect.X - 4f;
+                }
+
+                if (pixelStudio.Frames[frameIndex].IsLoopStart && !pixelStudio.Frames[frameIndex].IsLoopEnd)
+                {
+                    UiRect loopInBadgeRect = new(
+                        badgeRight - 28f,
+                        layout.FrameRows[index].Rect.Y + 6f,
+                        28f,
+                        Math.Max(layout.FrameRows[index].Rect.Height - 12f, 0f));
+                    DrawRoundedUiRect(loopInBadgeRect, Blend(_theme.Accent, _theme.TabActive, 0.38f), 6f);
+                    DrawCenteredTextClippedInRect("IN", statusFont, bodyText, loopInBadgeRect, 4f, 4f);
+                    badgeRight = loopInBadgeRect.X - 4f;
+                }
+
+                frameTextRect = new UiRect(
+                    frameTextRect.X,
+                    frameTextRect.Y,
+                    Math.Max(badgeRight - frameTextRect.X, 0f),
+                    frameTextRect.Height);
+
                 string suffix = pixelStudio.Frames[frameIndex].IsPreviewing ? " *" : string.Empty;
-                DrawCenteredTextClippedInRect($"{pixelStudio.Frames[frameIndex].Name}{suffix}", bodyFont, bodyText, layout.FrameRows[index].Rect, 10, 8);
+                DrawCenteredTextClippedInRect($"{pixelStudio.Frames[frameIndex].Name}{suffix}", bodyFont, bodyText, frameTextRect, 10, 8);
             }
         }
 
@@ -2022,10 +2279,12 @@ public sealed class EditorShellRenderer : IDisposable
                     string buttonLabel = button.Action switch
                     {
                         PixelStudioAction.ConfirmWarningDialog => pixelStudio.WarningDialogConfirmLabel,
+                        PixelStudioAction.AlternateWarningDialog => pixelStudio.WarningDialogAlternateLabel,
+                        PixelStudioAction.TertiaryWarningDialog => pixelStudio.WarningDialogTertiaryLabel,
                         PixelStudioAction.CancelWarningDialog => pixelStudio.WarningDialogCancelLabel,
                         _ => GetPixelStudioActionDisplayLabel(button.Action)
                     };
-                    DrawCenteredTextInRect(buttonLabel, bodyFont, bodyText, button.Rect, 6, 6);
+                    DrawCenteredTextClippedInRect(buttonLabel, bodyFont, bodyText, button.Rect, 6, 6);
                 }
             }
             else
@@ -2869,6 +3128,7 @@ public sealed class EditorShellRenderer : IDisposable
             return;
         }
 
+        PixelStudioLayerView? activeLayer = _uiState.PixelStudio.Layers.FirstOrDefault(layer => layer.IsActive);
         DrawTextInRect("Pixel Inspector", titleFont, bodyText, rightPanel, 18, 18);
         DrawTextInRect("Selected Color", statusFont, bodyText, rightPanel, 18, 46);
         DrawTextInRect(_uiState.PixelStudio.ActiveColorHex, bodyFont, bodyText, rightPanel, 18, 66);
@@ -2879,10 +3139,125 @@ public sealed class EditorShellRenderer : IDisposable
             DrawTextInRect("Frame", statusFont, bodyText, rightPanel, 18, 154);
             DrawTextInRect(_uiState.PixelStudio.Frames.FirstOrDefault(frame => frame.IsActive)?.Name ?? "Frame 1", bodyFont, bodyText, rightPanel, 18, 174);
             DrawTextInRect("Layer", statusFont, bodyText, rightPanel, 18, 208);
-            DrawTextInRect(_uiState.PixelStudio.Layers.FirstOrDefault(layer => layer.IsActive)?.Name ?? "Layer 1", bodyFont, bodyText, rightPanel, 18, 228);
-            DrawTextInRect("Grid", statusFont, bodyText, rightPanel, 18, 262);
-            DrawTextInRect(_uiState.PixelStudio.ShowGrid ? "Visible" : "Hidden", bodyFont, bodyText, rightPanel, 18, 282);
+            DrawTextInRect(activeLayer?.Name ?? "Layer 1", bodyFont, bodyText, rightPanel, 18, 228);
+            DrawTextInRect(BuildLayerInspectorSummary(activeLayer), statusFont, bodyText, rightPanel, 18, 250);
+            DrawTextInRect("Grid", statusFont, bodyText, rightPanel, 18, 282);
+            DrawTextInRect(_uiState.PixelStudio.ShowGrid ? "Visible" : "Hidden", bodyFont, bodyText, rightPanel, 18, 302);
         }
+    }
+
+    private static string BuildLayerInspectorSummary(PixelStudioLayerView? layer)
+    {
+        if (layer is null)
+        {
+            return "Frame-local";
+        }
+
+        List<string> parts =
+        [
+            layer.IsSharedAcrossFrames ? "Shared" : "Frame-local"
+        ];
+        if (layer.IsLocked)
+        {
+            parts.Add("Locked");
+        }
+
+        if (layer.IsAlphaLocked)
+        {
+            parts.Add("Alpha");
+        }
+
+        if (layer.Opacity < 0.995f)
+        {
+            parts.Add($"{MathF.Round(layer.Opacity * 100f)}%");
+        }
+
+        return string.Join(" · ", parts);
+    }
+
+    private UiRect? ResolveLayerReorderIndicatorRect(PixelStudioLayoutSnapshot layout)
+    {
+        PixelStudioViewState pixelStudio = _uiState.PixelStudio;
+        if (!pixelStudio.LayerReorderActive
+            || !string.IsNullOrWhiteSpace(pixelStudio.LayerReorderJoinGroupId)
+            || layout.LayerRows.Count == 0
+            || layout.LayerListViewportRect is null)
+        {
+            return null;
+        }
+
+        int insertIndex = Math.Clamp(pixelStudio.LayerReorderInsertIndex, 0, pixelStudio.Layers.Count);
+        int minVisibleIndex = layout.LayerRows.Min(row => row.Index);
+        int maxVisibleIndex = layout.LayerRows.Max(row => row.Index);
+        float x = layout.LayerVisibilityButtons.Count > 0
+            ? layout.LayerVisibilityButtons[0].Rect.X
+            : layout.LayerRows[0].Rect.X;
+        float right = layout.LayerRows[0].Rect.X + layout.LayerRows[0].Rect.Width;
+        float width = Math.Max(right - x, 16f);
+        float y;
+        if (insertIndex <= minVisibleIndex)
+        {
+            y = layout.LayerRows[0].Rect.Y - 3f;
+        }
+        else if (insertIndex > maxVisibleIndex)
+        {
+            y = layout.LayerRows[^1].Rect.Y + layout.LayerRows[^1].Rect.Height + 1f;
+        }
+        else
+        {
+            IndexedRect targetRow = layout.LayerRows
+                .Where(row => row.Index >= insertIndex)
+                .OrderBy(row => row.Index)
+                .FirstOrDefault() ?? layout.LayerRows[^1];
+            y = targetRow.Rect.Y > 0f ? targetRow.Rect.Y - 3f : layout.LayerRows[^1].Rect.Y + layout.LayerRows[^1].Rect.Height + 1f;
+        }
+
+        return new UiRect(x, y, width, 4f);
+    }
+
+    private UiRect? ResolveFrameReorderIndicatorRect(PixelStudioLayoutSnapshot layout)
+    {
+        PixelStudioViewState pixelStudio = _uiState.PixelStudio;
+        if (!pixelStudio.FrameReorderActive || layout.FrameRows.Count == 0 || layout.FrameListViewportRect is null)
+        {
+            return null;
+        }
+
+        int insertIndex = Math.Clamp(pixelStudio.FrameReorderInsertIndex, 0, pixelStudio.Frames.Count);
+        int minVisibleIndex = layout.FrameRows.Min(row => row.Index);
+        int maxVisibleIndex = layout.FrameRows.Max(row => row.Index);
+        IndexedRect anchorRow;
+        float x;
+        if (insertIndex <= minVisibleIndex)
+        {
+            anchorRow = layout.FrameRows[0];
+            x = anchorRow.Rect.X - 3f;
+        }
+        else if (insertIndex > maxVisibleIndex)
+        {
+            anchorRow = layout.FrameRows[^1];
+            x = anchorRow.Rect.X + anchorRow.Rect.Width - 1f;
+        }
+        else
+        {
+            anchorRow = layout.FrameRows
+                .Where(row => row.Index >= insertIndex)
+                .OrderBy(row => row.Index)
+                .FirstOrDefault() ?? layout.FrameRows[^1];
+            if (anchorRow.Rect.Width <= 0f)
+            {
+                anchorRow = layout.FrameRows[^1];
+                x = anchorRow.Rect.X + anchorRow.Rect.Width - 1f;
+            }
+            else
+            {
+                x = anchorRow.Rect.X - 3f;
+            }
+        }
+
+        float top = anchorRow.Rect.Y + 4f;
+        float height = Math.Max(anchorRow.Rect.Height - 8f, 12f);
+        return new UiRect(x, top, 4f, height);
     }
 
     private string GetPixelToolLabel(PixelStudioToolKind tool)
@@ -2896,8 +3271,8 @@ public sealed class EditorShellRenderer : IDisposable
                 _ => "Select"
             },
             PixelStudioToolKind.Hand => "Hand",
-            PixelStudioToolKind.Pencil => "Pencil",
-            PixelStudioToolKind.Eraser => "Eraser",
+            PixelStudioToolKind.Pencil => GetBrushToolLabel(PixelStudioToolKind.Pencil),
+            PixelStudioToolKind.Eraser => GetBrushToolLabel(PixelStudioToolKind.Eraser),
             PixelStudioToolKind.Line => "Line",
             PixelStudioToolKind.Rectangle => _uiState.PixelStudio.RectangleRenderMode == PixelStudioShapeRenderMode.Filled ? "Rect Fill" : "Rectangle",
             PixelStudioToolKind.Ellipse => _uiState.PixelStudio.EllipseRenderMode == PixelStudioShapeRenderMode.Filled ? "Ellipse Fill" : "Ellipse",
@@ -2931,6 +3306,38 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioToolKind.Picker => "I",
             _ => tool.ToString()
         };
+    }
+
+    private string GetBrushToolLabel(PixelStudioToolKind tool)
+    {
+        string prefix = tool == PixelStudioToolKind.Eraser ? "Eraser" : "Pencil";
+        return _uiState.PixelStudio.BrushMode switch
+        {
+            PixelStudioBrushMode.Square => $"{prefix} Hard",
+            PixelStudioBrushMode.PixelPerfect => $"{prefix} PP",
+            _ => prefix
+        };
+    }
+
+    private void DrawBrushPreviewGlyph(UiRect previewRect)
+    {
+        float glyphSize = Math.Clamp(_uiState.PixelStudio.BrushSize * 2f, 6f, Math.Max(previewRect.Width - 10f, 6f));
+        float glyphX = previewRect.X + ((previewRect.Width - glyphSize) * 0.5f);
+        float glyphY = previewRect.Y + ((previewRect.Height - glyphSize) * 0.5f);
+        UiRect glyphRect = new(glyphX, glyphY, glyphSize, glyphSize);
+        switch (_uiState.PixelStudio.BrushMode)
+        {
+            case PixelStudioBrushMode.Square:
+                DrawUiRect(glyphRect, _theme.Accent);
+                break;
+            case PixelStudioBrushMode.PixelPerfect:
+                DrawUiRect(new UiRect(glyphX, glyphY + ((glyphSize - 4f) * 0.5f), glyphSize, 4f), _theme.Accent);
+                DrawUiRect(new UiRect(glyphX + ((glyphSize - 4f) * 0.5f), glyphY, 4f, glyphSize), _theme.Accent);
+                break;
+            default:
+                DrawRoundedUiRect(glyphRect, _theme.Accent, Math.Max(glyphSize * 0.22f, 2f));
+                break;
+        }
     }
 
     private void DrawPixelToolButtonIcon(PixelStudioToolKind tool, UiRect rect, Font bodyFont, Font statusFont, SixLabors.ImageSharp.Color bodyText, SixLabors.ImageSharp.Color statusText)
@@ -2977,6 +3384,12 @@ public sealed class EditorShellRenderer : IDisposable
                 (button.Action == PixelStudioContextMenuAction.SetSelectionModeBox && _uiState.PixelStudio.SelectionMode == PixelStudioSelectionMode.Box)
                 || (button.Action == PixelStudioContextMenuAction.SetSelectionModeAutoGlobal && _uiState.PixelStudio.SelectionMode == PixelStudioSelectionMode.AutoGlobal)
                 || (button.Action == PixelStudioContextMenuAction.SetSelectionModeAutoLocal && _uiState.PixelStudio.SelectionMode == PixelStudioSelectionMode.AutoLocal)
+                || (button.Action == PixelStudioContextMenuAction.SetBrushModeRound && _uiState.PixelStudio.BrushMode == PixelStudioBrushMode.Round)
+                || (button.Action == PixelStudioContextMenuAction.SetBrushModeSquare && _uiState.PixelStudio.BrushMode == PixelStudioBrushMode.Square)
+                || (button.Action == PixelStudioContextMenuAction.SetBrushModePixelPerfect && _uiState.PixelStudio.BrushMode == PixelStudioBrushMode.PixelPerfect)
+                || (button.Action == PixelStudioContextMenuAction.SetOnionModePreviousOnly && _uiState.PixelStudio.ShowOnionSkin && _uiState.PixelStudio.ShowPreviousOnion && !_uiState.PixelStudio.ShowNextOnion && !_uiState.PixelStudio.AllowDualOnion)
+                || (button.Action == PixelStudioContextMenuAction.SetOnionModeNextOnly && _uiState.PixelStudio.ShowOnionSkin && !_uiState.PixelStudio.ShowPreviousOnion && _uiState.PixelStudio.ShowNextOnion && !_uiState.PixelStudio.AllowDualOnion)
+                || (button.Action == PixelStudioContextMenuAction.SetOnionModeBoth && _uiState.PixelStudio.ShowOnionSkin && _uiState.PixelStudio.ShowPreviousOnion && _uiState.PixelStudio.ShowNextOnion && _uiState.PixelStudio.AllowDualOnion)
                 || (button.Action == PixelStudioContextMenuAction.SetRectangleModeOutline && _uiState.PixelStudio.RectangleRenderMode == PixelStudioShapeRenderMode.Outline)
                 || (button.Action == PixelStudioContextMenuAction.SetRectangleModeFilled && _uiState.PixelStudio.RectangleRenderMode == PixelStudioShapeRenderMode.Filled)
                 || (button.Action == PixelStudioContextMenuAction.SetEllipseModeOutline && _uiState.PixelStudio.EllipseRenderMode == PixelStudioShapeRenderMode.Outline)
@@ -3080,6 +3493,8 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.ScaleSelectionUp => "2x",
             PixelStudioAction.ScaleSelectionDown => "/2",
             PixelStudioAction.ConfirmWarningDialog => "Continue",
+            PixelStudioAction.AlternateWarningDialog => "Delete",
+            PixelStudioAction.TertiaryWarningDialog => "Save & Swap",
             PixelStudioAction.CancelWarningDialog => "Cancel",
             PixelStudioAction.NudgeSelectionLeft => "Left",
             PixelStudioAction.NudgeSelectionRight => "Right",
@@ -3092,11 +3507,14 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.ToggleTimelinePanel => "Frames",
             PixelStudioAction.TogglePaletteLibrary => "Library",
             PixelStudioAction.AddPaletteSwatch => "Add",
+            PixelStudioAction.GeneratePaletteRamp => "Ramp",
+            PixelStudioAction.NewBlankPalette => "Blank",
             PixelStudioAction.SaveCurrentPalette => "Save",
+            PixelStudioAction.UpdateSelectedPalette => "Update",
             PixelStudioAction.DuplicateSelectedPalette => "Dup",
             PixelStudioAction.ImportPalette => "Import",
             PixelStudioAction.ExportPalette => "Export",
-            PixelStudioAction.GeneratePaletteFromImage => "Generate",
+            PixelStudioAction.GeneratePaletteFromImage => "Image",
             PixelStudioAction.RenameSelectedPalette => "Rename",
             PixelStudioAction.DeleteSelectedPalette => "Delete",
             PixelStudioAction.PalettePromptGenerate => "Yes",
@@ -3121,6 +3539,9 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.TogglePlayback => "Play",
             PixelStudioAction.DecreaseFrameRate => "FPS -",
             PixelStudioAction.IncreaseFrameRate => "FPS +",
+            PixelStudioAction.SetLoopStart => "Loop In",
+            PixelStudioAction.SetLoopEnd => "Loop Out",
+            PixelStudioAction.CyclePlaybackLoopMode => "Mode",
             PixelStudioAction.DecreaseFrameDuration => "Dur -",
             PixelStudioAction.IncreaseFrameDuration => "Dur +",
             _ => action.ToString()
@@ -3138,8 +3559,9 @@ public sealed class EditorShellRenderer : IDisposable
                 PixelStudioMirrorMode.Both => "Mirror HV",
                 _ => "Mirror"
             },
-            PixelStudioAction.ToggleOnionPrevious => _uiState.PixelStudio.ShowPreviousOnion ? "Prev On" : "Prev",
-            PixelStudioAction.ToggleOnionNext => _uiState.PixelStudio.ShowNextOnion ? "Next On" : "Next",
+            PixelStudioAction.CyclePlaybackLoopMode => _uiState.PixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.PingPong
+                ? "Bounce"
+                : "Fwd",
             _ => GetPixelStudioActionLabel(action)
         };
     }
@@ -3161,6 +3583,12 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioContextMenuAction.SetSelectionModeBox => "Box Select",
             PixelStudioContextMenuAction.SetSelectionModeAutoGlobal => "Automatic - Global",
             PixelStudioContextMenuAction.SetSelectionModeAutoLocal => "Automatic - Local",
+            PixelStudioContextMenuAction.SetBrushModeRound => "Round Brush",
+            PixelStudioContextMenuAction.SetBrushModeSquare => "Hard Edge",
+            PixelStudioContextMenuAction.SetBrushModePixelPerfect => "Pixel Perfect",
+            PixelStudioContextMenuAction.SetOnionModePreviousOnly => "Previous Only",
+            PixelStudioContextMenuAction.SetOnionModeNextOnly => "Next Only",
+            PixelStudioContextMenuAction.SetOnionModeBoth => "Show Both",
             PixelStudioContextMenuAction.SetRectangleModeOutline => "Rectangle Outline",
             PixelStudioContextMenuAction.SetRectangleModeFilled => "Rectangle Fill",
             PixelStudioContextMenuAction.SetEllipseModeOutline => "Ellipse Outline",
@@ -3179,11 +3607,14 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioContextMenuAction.DuplicatePalette => "Duplicate Palette",
             PixelStudioContextMenuAction.ExportPalette => "Export Palette",
             PixelStudioContextMenuAction.DeletePalette => "Delete Palette",
+            PixelStudioContextMenuAction.TogglePaletteLock => "Toggle Palette Lock",
+            PixelStudioContextMenuAction.DeletePaletteSwatch => "Delete Swatch",
             PixelStudioContextMenuAction.RenameLayer => "Rename Layer",
             PixelStudioContextMenuAction.DuplicateLayer => "Duplicate Layer",
+            PixelStudioContextMenuAction.MergeLayerDown => "Merge Layer Down",
             PixelStudioContextMenuAction.MoveLayerUp => "Move Layer Up",
             PixelStudioContextMenuAction.MoveLayerDown => "Move Layer Down",
-            PixelStudioContextMenuAction.ToggleLayerSharedAcrossFrames => "Share Across Frames",
+            PixelStudioContextMenuAction.ToggleLayerSharedAcrossFrames => "Share Across All Frames",
             PixelStudioContextMenuAction.ToggleLayerAlphaLock => "Toggle Alpha Lock",
             PixelStudioContextMenuAction.ToggleLayerLock => "Toggle Layer Lock",
             PixelStudioContextMenuAction.DeleteLayer => "Delete Layer",
@@ -3336,6 +3767,8 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.SetCanvasResizeAnchorBottomRight when _uiState.PixelStudio.CanvasResizeAnchor == PixelStudioResizeAnchor.BottomRight => _theme.TabActive,
             PixelStudioAction.ApplyCanvasResize => Blend(_theme.Accent, _theme.TabActive, 0.44f),
             PixelStudioAction.ConfirmWarningDialog => Blend(_theme.Accent, _theme.TabActive, 0.44f),
+            PixelStudioAction.AlternateWarningDialog => Blend(_theme.TabInactive, _theme.Accent, 0.28f),
+            PixelStudioAction.TertiaryWarningDialog => Blend(_theme.TabActive, _theme.MenuBar, 0.18f),
             PixelStudioAction.CancelWarningDialog => Blend(_theme.TabInactive, _theme.MenuBar, 0.22f),
             PixelStudioAction.ToggleGrid when _uiState.PixelStudio.ShowGrid => _theme.TabActive,
             PixelStudioAction.CycleMirrorMode when _uiState.PixelStudio.MirrorMode != PixelStudioMirrorMode.Off => _theme.TabActive,
@@ -3343,6 +3776,8 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.ToggleNavigatorPanel when _uiState.PixelStudio.NavigatorVisible => _theme.TabActive,
             PixelStudioAction.ToggleAnimationPreviewPanel when _uiState.PixelStudio.AnimationPreviewVisible => _theme.TabActive,
             PixelStudioAction.ToggleOnionSkin when _uiState.PixelStudio.ShowOnionSkin => _theme.TabActive,
+            PixelStudioAction.ToggleOnionPrevious when _uiState.PixelStudio.ShowOnionSkin && _uiState.PixelStudio.ShowPreviousOnion => Blend(_theme.Accent, _theme.TabActive, 0.32f),
+            PixelStudioAction.ToggleOnionNext when _uiState.PixelStudio.ShowOnionSkin && _uiState.PixelStudio.ShowNextOnion => Blend(_theme.Accent, _theme.TabActive, 0.24f),
             PixelStudioAction.ToggleLayerOpacityControls when _uiState.PixelStudio.LayerOpacityControlsVisible => _theme.TabActive,
             PixelStudioAction.ToggleLayerAlphaLock when _uiState.PixelStudio.ActiveLayerAlphaLocked => _theme.TabActive,
             PixelStudioAction.ClearSelection when _uiState.PixelStudio.HasSelection => Blend(_theme.Accent, _theme.TabActive, 0.36f),
@@ -3355,6 +3790,9 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.ResizeCanvas128 when _uiState.PixelStudio.CanvasWidth == 128 && _uiState.PixelStudio.CanvasHeight == 128 => _theme.TabActive,
             PixelStudioAction.ResizeCanvas256 when _uiState.PixelStudio.CanvasWidth == 256 && _uiState.PixelStudio.CanvasHeight == 256 => _theme.TabActive,
             PixelStudioAction.ResizeCanvas512 when _uiState.PixelStudio.CanvasWidth == 512 && _uiState.PixelStudio.CanvasHeight == 512 => _theme.TabActive,
+            PixelStudioAction.SetLoopStart when _uiState.PixelStudio.LoopRangeEnabled => Blend(_theme.Accent, _theme.TabActive, 0.30f),
+            PixelStudioAction.SetLoopEnd when _uiState.PixelStudio.LoopRangeEnabled => Blend(_theme.Accent, _theme.TabActive, 0.24f),
+            PixelStudioAction.CyclePlaybackLoopMode when _uiState.PixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.PingPong => Blend(_theme.Accent, _theme.TabActive, 0.26f),
             PixelStudioAction.ToggleTimelinePanel when _uiState.PixelStudio.TimelineVisible => _theme.TabActive,
             PixelStudioAction.TogglePaletteLibrary when _uiState.PixelStudio.PaletteLibraryVisible => _theme.TabActive,
             _ => _theme.TabInactive
@@ -3364,25 +3802,39 @@ public sealed class EditorShellRenderer : IDisposable
     private void DrawMirrorGuides(PixelStudioLayoutSnapshot layout, int canvasWidth, int canvasHeight, int cellSize)
     {
         ThemeColor guideColor = Blend(_theme.Accent, _theme.Divider, 0.34f);
-        float canvasPixelWidth = canvasWidth * cellSize;
-        float canvasPixelHeight = canvasHeight * cellSize;
+        ThemeColor handleColor = Blend(_theme.Accent, _theme.TabActive, 0.42f);
+        UiRect visibleCanvasRect = PixelStudioMirrorAxisMath.GetVisibleCanvasRect(layout.CanvasViewportRect, layout.CanvasClipRect);
+        UiRect handleBounds = visibleCanvasRect.Width > 0f && visibleCanvasRect.Height > 0f
+            ? visibleCanvasRect
+            : layout.CanvasClipRect;
+        UiRect? obstructionRect = PixelStudioMirrorAxisMath.Intersects(handleBounds, layout.ToolSettingsPanelRect)
+            ? layout.ToolSettingsPanelRect
+            : null;
 
         if (_uiState.PixelStudio.MirrorMode is PixelStudioMirrorMode.Horizontal or PixelStudioMirrorMode.Both)
         {
-            float guideX = layout.CanvasViewportRect.X + (canvasPixelWidth * 0.5f) - 0.5f;
+            float guideX = PixelStudioMirrorAxisMath.GetGuidePosition(layout.CanvasViewportRect.X, cellSize, _uiState.PixelStudio.MirrorAxisX);
             DrawUiRectClipped(
                 new UiRect(guideX, layout.CanvasViewportRect.Y, 1f, layout.CanvasViewportRect.Height),
                 guideColor,
                 layout.CanvasClipRect);
+            DrawRoundedUiRect(
+                PixelStudioMirrorAxisMath.GetVerticalHandleRect(handleBounds, obstructionRect, guideX),
+                handleColor,
+                5f);
         }
 
         if (_uiState.PixelStudio.MirrorMode is PixelStudioMirrorMode.Vertical or PixelStudioMirrorMode.Both)
         {
-            float guideY = layout.CanvasViewportRect.Y + (canvasPixelHeight * 0.5f) - 0.5f;
+            float guideY = PixelStudioMirrorAxisMath.GetGuidePosition(layout.CanvasViewportRect.Y, cellSize, _uiState.PixelStudio.MirrorAxisY);
             DrawUiRectClipped(
                 new UiRect(layout.CanvasViewportRect.X, guideY, layout.CanvasViewportRect.Width, 1f),
                 guideColor,
                 layout.CanvasClipRect);
+            DrawRoundedUiRect(
+                PixelStudioMirrorAxisMath.GetHorizontalHandleRect(handleBounds, obstructionRect, guideY),
+                handleColor,
+                5f);
         }
     }
 
@@ -3631,10 +4083,18 @@ public sealed class EditorShellRenderer : IDisposable
         }
 
         UiRect? angleBadgeRect = layout.SelectionTransformAngleFieldRect;
+        UiRect? scaleXBadgeRect = layout.SelectionTransformScaleXFieldRect;
+        UiRect? scaleYBadgeRect = layout.SelectionTransformScaleYFieldRect;
         Font? angleFont = null;
         string angleText = pixelStudio.SelectionTransformAngleFieldActive && !string.IsNullOrWhiteSpace(pixelStudio.SelectionTransformAngleBuffer)
             ? pixelStudio.SelectionTransformAngleBuffer
             : $"{NormalizeAngleLabel(pixelStudio.SelectionTransformPreviewVisible ? pixelStudio.SelectionTransformPreviewRotationDegrees : 0f)} deg";
+        string scaleXText = pixelStudio.SelectionTransformScaleXFieldActive && !string.IsNullOrWhiteSpace(pixelStudio.SelectionTransformScaleXBuffer)
+            ? pixelStudio.SelectionTransformScaleXBuffer
+            : $"X {FormatTransformScaleLabel(pixelStudio.SelectionTransformPreviewScaleX)}";
+        string scaleYText = pixelStudio.SelectionTransformScaleYFieldActive && !string.IsNullOrWhiteSpace(pixelStudio.SelectionTransformScaleYBuffer)
+            ? pixelStudio.SelectionTransformScaleYBuffer
+            : $"Y {FormatTransformScaleLabel(pixelStudio.SelectionTransformPreviewScaleY)}";
         if (rotateHandle is not null && topHandle is not null)
         {
             (float rotateCenterX, float rotateCenterY) = GetRectCenter(rotateHandle.Rect);
@@ -3672,6 +4132,27 @@ public sealed class EditorShellRenderer : IDisposable
             DrawRectOutline(handle.Rect, 1f, _theme.Accent, layout.CanvasClipRect);
         }
 
+        foreach (ActionRect<PixelStudioResizeAnchor> pivotPresetButton in layout.SelectionTransformPivotPresetButtons)
+        {
+            bool isActivePreset = IsTransformPivotPresetActive(pixelStudio, pivotPresetButton.Action);
+            ThemeColor presetFill = isActivePreset
+                ? Blend(_theme.Accent, _theme.TabActive, 0.22f)
+                : Blend(_theme.MenuBar, _theme.TabActive, 0.20f);
+            DrawRoundedUiRect(pivotPresetButton.Rect, presetFill, 3f);
+            DrawRectOutline(pivotPresetButton.Rect, 1f, isActivePreset ? _theme.Accent : Blend(_theme.Accent, _theme.Divider, 0.36f), layout.CanvasClipRect);
+            if (isActivePreset)
+            {
+                DrawUiRectClipped(
+                    new UiRect(
+                        pivotPresetButton.Rect.X + (pivotPresetButton.Rect.Width * 0.5f) - 1.5f,
+                        pivotPresetButton.Rect.Y + (pivotPresetButton.Rect.Height * 0.5f) - 1.5f,
+                        3f,
+                        3f),
+                    _theme.Accent,
+                    layout.CanvasClipRect);
+            }
+        }
+
         if (angleBadgeRect is not null && angleFont is not null)
         {
             DrawRoundedUiRect(angleBadgeRect.Value, new ThemeColor(0.05f, 0.05f, 0.06f, 0.86f), 8f);
@@ -3684,6 +4165,34 @@ public sealed class EditorShellRenderer : IDisposable
                 1f,
                 pixelStudio.SelectionTransformAngleFieldActive,
                 pixelStudio.SelectionTransformAngleFieldActive && string.IsNullOrWhiteSpace(pixelStudio.SelectionTransformAngleBuffer));
+        }
+
+        if (scaleXBadgeRect is not null && angleFont is not null)
+        {
+            DrawRoundedUiRect(scaleXBadgeRect.Value, new ThemeColor(0.05f, 0.05f, 0.06f, 0.86f), 8f);
+            DrawCenteredEditableTextInRect(
+                scaleXText,
+                angleFont,
+                ToImageSharpColor(_typography.BodyText.Color),
+                scaleXBadgeRect.Value,
+                4f,
+                1f,
+                pixelStudio.SelectionTransformScaleXFieldActive,
+                pixelStudio.SelectionTransformScaleXFieldActive && string.IsNullOrWhiteSpace(pixelStudio.SelectionTransformScaleXBuffer));
+        }
+
+        if (scaleYBadgeRect is not null && angleFont is not null)
+        {
+            DrawRoundedUiRect(scaleYBadgeRect.Value, new ThemeColor(0.05f, 0.05f, 0.06f, 0.86f), 8f);
+            DrawCenteredEditableTextInRect(
+                scaleYText,
+                angleFont,
+                ToImageSharpColor(_typography.BodyText.Color),
+                scaleYBadgeRect.Value,
+                4f,
+                1f,
+                pixelStudio.SelectionTransformScaleYFieldActive,
+                pixelStudio.SelectionTransformScaleYFieldActive && string.IsNullOrWhiteSpace(pixelStudio.SelectionTransformScaleYBuffer));
         }
     }
 
@@ -3700,6 +4209,42 @@ public sealed class EditorShellRenderer : IDisposable
         }
 
         return normalized.ToString("0.#", CultureInfo.InvariantCulture);
+    }
+
+    private static string FormatTransformScaleLabel(float scale)
+    {
+        return $"{MathF.Max(scale, 0.01f) * 100f:0.#}%";
+    }
+
+    private static bool IsTransformPivotPresetActive(PixelStudioViewState pixelStudio, PixelStudioResizeAnchor anchor)
+    {
+        if (!pixelStudio.HasSelection)
+        {
+            return false;
+        }
+
+        (float pivotX, float pivotY) = GetTransformAnchorPoint(pixelStudio.SelectionX, pixelStudio.SelectionY, pixelStudio.SelectionWidth, pixelStudio.SelectionHeight, anchor);
+        return MathF.Abs(pixelStudio.SelectionTransformPivotX - pivotX) <= 0.01f
+            && MathF.Abs(pixelStudio.SelectionTransformPivotY - pivotY) <= 0.01f;
+    }
+
+    private static (float X, float Y) GetTransformAnchorPoint(int left, int top, int width, int height, PixelStudioResizeAnchor anchor)
+    {
+        (float anchorX, float anchorY) = anchor switch
+        {
+            PixelStudioResizeAnchor.TopLeft => (0f, 0f),
+            PixelStudioResizeAnchor.Top => (0.5f, 0f),
+            PixelStudioResizeAnchor.TopRight => (1f, 0f),
+            PixelStudioResizeAnchor.Left => (0f, 0.5f),
+            PixelStudioResizeAnchor.Center => (0.5f, 0.5f),
+            PixelStudioResizeAnchor.Right => (1f, 0.5f),
+            PixelStudioResizeAnchor.BottomLeft => (0f, 1f),
+            PixelStudioResizeAnchor.Bottom => (0.5f, 1f),
+            PixelStudioResizeAnchor.BottomRight => (1f, 1f),
+            _ => (0.5f, 0.5f)
+        };
+
+        return (left + (width * anchorX), top + (height * anchorY));
     }
 
     private static (float X, float Y) GetRectCenter(UiRect rect)
@@ -3805,6 +4350,8 @@ public sealed class EditorShellRenderer : IDisposable
         int targetWidth = _uiState.PixelStudio.SelectionTransformPreviewWidth;
         int targetHeight = _uiState.PixelStudio.SelectionTransformPreviewHeight;
         float rotationDegrees = _uiState.PixelStudio.SelectionTransformPreviewRotationDegrees;
+        float scaleX = Math.Max(_uiState.PixelStudio.SelectionTransformPreviewScaleX, 0.01f);
+        float scaleY = Math.Max(_uiState.PixelStudio.SelectionTransformPreviewScaleY, 0.01f);
 
         if (sourceWidth <= 0 || sourceHeight <= 0 || targetWidth <= 0 || targetHeight <= 0)
         {
@@ -3813,7 +4360,9 @@ public sealed class EditorShellRenderer : IDisposable
 
         bool usesMask = _uiState.PixelStudio.SelectionUsesMask && _uiState.PixelStudio.SelectionMaskIndices.Count > 0;
         IReadOnlySet<int> maskIndices = _uiState.PixelStudio.SelectionMaskIndices;
-        IReadOnlyList<ThemeColor?> compositePixels = _uiState.PixelStudio.CompositePixels;
+        IReadOnlyList<ThemeColor?> sourcePixels = _uiState.PixelStudio.SelectionTransformSourceColors;
+        bool mirrorHorizontal = _uiState.PixelStudio.MirrorMode is PixelStudioMirrorMode.Horizontal or PixelStudioMirrorMode.Both;
+        bool mirrorVertical = _uiState.PixelStudio.MirrorMode is PixelStudioMirrorMode.Vertical or PixelStudioMirrorMode.Both;
         int visibleCanvasLeft = Math.Max((int)MathF.Floor((layout.CanvasClipRect.X - layout.CanvasViewportRect.X) / Math.Max(cellSize, 1)), 0);
         int visibleCanvasTop = Math.Max((int)MathF.Floor((layout.CanvasClipRect.Y - layout.CanvasViewportRect.Y) / Math.Max(cellSize, 1)), 0);
         int visibleCanvasRight = Math.Min((int)MathF.Ceiling(((layout.CanvasClipRect.X + layout.CanvasClipRect.Width) - layout.CanvasViewportRect.X) / Math.Max(cellSize, 1)) - 1, canvasWidth - 1);
@@ -3827,7 +4376,6 @@ public sealed class EditorShellRenderer : IDisposable
             return;
         }
 
-        bool rotatePreview = MathF.Abs(rotationDegrees) > 0.01f;
         float radians = rotationDegrees * (MathF.PI / 180f);
         float cos = MathF.Cos(radians);
         float sin = MathF.Sin(radians);
@@ -3838,29 +4386,21 @@ public sealed class EditorShellRenderer : IDisposable
         {
             for (int targetX = targetStartX; targetX <= targetEndX; targetX++)
             {
-                int sourceX;
-                int sourceY;
-                if (rotatePreview)
+                float targetCenterX = targetLeft + targetX + 0.5f;
+                float targetCenterY = targetTop + targetY + 0.5f;
+                float dx = targetCenterX - centerX;
+                float dy = targetCenterY - centerY;
+                float unrotatedCanvasX = centerX + (dx * cos) + (dy * sin);
+                float unrotatedCanvasY = centerY - (dx * sin) + (dy * cos);
+                float sourceCanvasX = centerX + ((unrotatedCanvasX - centerX) / scaleX);
+                float sourceCanvasY = centerY + ((unrotatedCanvasY - centerY) / scaleY);
+                if (sourceCanvasX < sourceLeft || sourceCanvasX >= sourceLeft + sourceWidth || sourceCanvasY < sourceTop || sourceCanvasY >= sourceTop + sourceHeight)
                 {
-                    float targetCenterX = targetLeft + targetX + 0.5f;
-                    float targetCenterY = targetTop + targetY + 0.5f;
-                    float dx = targetCenterX - centerX;
-                    float dy = targetCenterY - centerY;
-                    float sourceCanvasX = centerX + (dx * cos) + (dy * sin);
-                    float sourceCanvasY = centerY - (dx * sin) + (dy * cos);
-                    if (sourceCanvasX < sourceLeft || sourceCanvasX >= sourceLeft + sourceWidth || sourceCanvasY < sourceTop || sourceCanvasY >= sourceTop + sourceHeight)
-                    {
-                        continue;
-                    }
+                    continue;
+                }
 
-                    sourceX = Math.Clamp((int)MathF.Floor(sourceCanvasX - sourceLeft), 0, Math.Max(sourceWidth - 1, 0));
-                    sourceY = Math.Clamp((int)MathF.Floor(sourceCanvasY - sourceTop), 0, Math.Max(sourceHeight - 1, 0));
-                }
-                else
-                {
-                    sourceX = Math.Clamp((int)MathF.Floor((targetX / (float)Math.Max(targetWidth - 1, 1)) * Math.Max(sourceWidth - 1, 0)), 0, Math.Max(sourceWidth - 1, 0));
-                    sourceY = Math.Clamp((int)MathF.Floor((targetY / (float)Math.Max(targetHeight - 1, 1)) * Math.Max(sourceHeight - 1, 0)), 0, Math.Max(sourceHeight - 1, 0));
-                }
+                int sourceX = Math.Clamp((int)MathF.Floor(sourceCanvasX - sourceLeft), 0, Math.Max(sourceWidth - 1, 0));
+                int sourceY = Math.Clamp((int)MathF.Floor(sourceCanvasY - sourceTop), 0, Math.Max(sourceHeight - 1, 0));
 
                 int absoluteSourceX = sourceLeft + sourceX;
                 int absoluteSourceY = sourceTop + sourceY;
@@ -3869,18 +4409,19 @@ public sealed class EditorShellRenderer : IDisposable
                     continue;
                 }
 
-                int sourceIndex = (absoluteSourceY * canvasWidth) + absoluteSourceX;
-                if (usesMask && !maskIndices.Contains(sourceIndex))
+                int sourceCanvasIndex = (absoluteSourceY * canvasWidth) + absoluteSourceX;
+                if (usesMask && !maskIndices.Contains(sourceCanvasIndex))
                 {
                     continue;
                 }
 
-                if (sourceIndex < 0 || sourceIndex >= compositePixels.Count)
+                int sourceIndex = (sourceY * sourceWidth) + sourceX;
+                if (sourceIndex < 0 || sourceIndex >= sourcePixels.Count)
                 {
                     continue;
                 }
 
-                ThemeColor? sourceColor = compositePixels[sourceIndex];
+                ThemeColor? sourceColor = sourcePixels[sourceIndex];
                 if (sourceColor is null || sourceColor.Value.A <= 0f)
                 {
                     continue;
@@ -3904,8 +4445,89 @@ public sealed class EditorShellRenderer : IDisposable
                     sourceColor.Value.B,
                     Math.Clamp(MathF.Max(sourceColor.Value.A, 0.84f), 0f, 1f));
                 DrawUiRectClipped(pixelRect, previewColor, layout.CanvasClipRect);
+
+                if (mirrorHorizontal || mirrorVertical)
+                {
+                    DrawMirroredTransformPreviewPixels(
+                        layout,
+                        canvasWidth,
+                        canvasHeight,
+                        cellSize,
+                        absoluteTargetX,
+                        absoluteTargetY,
+                        previewColor,
+                        mirrorHorizontal,
+                        mirrorVertical);
+                }
             }
         }
+    }
+
+    private void DrawMirroredTransformPreviewPixels(
+        PixelStudioLayoutSnapshot layout,
+        int canvasWidth,
+        int canvasHeight,
+        int cellSize,
+        int absoluteTargetX,
+        int absoluteTargetY,
+        ThemeColor previewColor,
+        bool mirrorHorizontal,
+        bool mirrorVertical)
+    {
+        HashSet<int> mirroredTargets = [];
+        float mirrorAxisX = _uiState.PixelStudio.MirrorAxisX;
+        float mirrorAxisY = _uiState.PixelStudio.MirrorAxisY;
+        if (mirrorHorizontal)
+        {
+            AddMirroredPreviewTarget(
+                mirroredTargets,
+                canvasWidth,
+                canvasHeight,
+                PixelStudioMirrorAxisMath.MirrorCoordinate(absoluteTargetX, mirrorAxisX),
+                absoluteTargetY);
+        }
+
+        if (mirrorVertical)
+        {
+            AddMirroredPreviewTarget(
+                mirroredTargets,
+                canvasWidth,
+                canvasHeight,
+                absoluteTargetX,
+                PixelStudioMirrorAxisMath.MirrorCoordinate(absoluteTargetY, mirrorAxisY));
+        }
+
+        if (mirrorHorizontal && mirrorVertical)
+        {
+            AddMirroredPreviewTarget(
+                mirroredTargets,
+                canvasWidth,
+                canvasHeight,
+                PixelStudioMirrorAxisMath.MirrorCoordinate(absoluteTargetX, mirrorAxisX),
+                PixelStudioMirrorAxisMath.MirrorCoordinate(absoluteTargetY, mirrorAxisY));
+        }
+
+        foreach (int targetIndex in mirroredTargets)
+        {
+            int targetX = targetIndex % canvasWidth;
+            int targetY = targetIndex / canvasWidth;
+            UiRect pixelRect = new(
+                layout.CanvasViewportRect.X + (targetX * cellSize),
+                layout.CanvasViewportRect.Y + (targetY * cellSize),
+                Math.Max(cellSize, 1),
+                Math.Max(cellSize, 1));
+            DrawUiRectClipped(pixelRect, previewColor, layout.CanvasClipRect);
+        }
+    }
+
+    private static void AddMirroredPreviewTarget(HashSet<int> targetIndices, int canvasWidth, int canvasHeight, int x, int y)
+    {
+        if (x < 0 || x >= canvasWidth || y < 0 || y >= canvasHeight)
+        {
+            return;
+        }
+
+        targetIndices.Add((y * canvasWidth) + x);
     }
 
     private void DrawPlaybackPreviewOverlay(

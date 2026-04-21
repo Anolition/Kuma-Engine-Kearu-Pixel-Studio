@@ -100,6 +100,8 @@ public sealed class PixelStudioLayoutSnapshot
 
     public UiRect? LayerRenameFieldRect { get; init; }
 
+    public UiRect? FrameDurationFieldRect { get; init; }
+
     public UiRect? FrameRenameFieldRect { get; init; }
 
     public UiRect? PalettePromptRect { get; init; }
@@ -119,6 +121,10 @@ public sealed class PixelStudioLayoutSnapshot
     public UiRect? SelectionTransformPreviewRect { get; init; }
 
     public UiRect? SelectionTransformAngleFieldRect { get; init; }
+
+    public UiRect? SelectionTransformScaleXFieldRect { get; init; }
+
+    public UiRect? SelectionTransformScaleYFieldRect { get; init; }
 
     public required int CameraZoom { get; init; }
 
@@ -158,6 +164,8 @@ public sealed class PixelStudioLayoutSnapshot
 
     public required IReadOnlyList<IndexedRect> SavedPaletteRows { get; init; }
 
+    public required IReadOnlyList<PixelStudioLayerGroupHeaderRect> LayerGroupRows { get; init; }
+
     public required IReadOnlyList<IndexedRect> LayerRows { get; init; }
 
     public required IReadOnlyList<IndexedRect> LayerVisibilityButtons { get; init; }
@@ -167,6 +175,8 @@ public sealed class PixelStudioLayoutSnapshot
     public required IReadOnlyList<IndexedRect> CanvasCells { get; init; }
 
     public required IReadOnlyList<PixelStudioSelectionHandleRect> SelectionHandleRects { get; init; }
+
+    public required IReadOnlyList<ActionRect<PixelStudioResizeAnchor>> SelectionTransformPivotPresetButtons { get; init; }
 
     public PixelStudioLayoutSnapshot WithCanvasCamera(PixelStudioCameraState camera)
     {
@@ -221,6 +231,7 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteLibraryRect = PaletteLibraryRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
+            FrameDurationFieldRect = FrameDurationFieldRect,
             FrameRenameFieldRect = FrameRenameFieldRect,
             PalettePromptRect = PalettePromptRect,
             ContextMenuRect = ContextMenuRect,
@@ -231,6 +242,8 @@ public sealed class PixelStudioLayoutSnapshot
             BrushPreviewRect = BrushPreviewRect,
             SelectionTransformPreviewRect = SelectionTransformPreviewRect,
             SelectionTransformAngleFieldRect = SelectionTransformAngleFieldRect,
+            SelectionTransformScaleXFieldRect = SelectionTransformScaleXFieldRect,
+            SelectionTransformScaleYFieldRect = SelectionTransformScaleYFieldRect,
             CameraZoom = camera.Zoom,
             CameraPanX = camera.PanX,
             CameraPanY = camera.PanY,
@@ -250,11 +263,13 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteSwatches = PaletteSwatches,
             RecentColorSwatches = RecentColorSwatches,
             SavedPaletteRows = SavedPaletteRows,
+            LayerGroupRows = LayerGroupRows,
             LayerRows = LayerRows,
             LayerVisibilityButtons = LayerVisibilityButtons,
             FrameRows = FrameRows,
             CanvasCells = CanvasCells,
-            SelectionHandleRects = SelectionHandleRects
+            SelectionHandleRects = SelectionHandleRects,
+            SelectionTransformPivotPresetButtons = SelectionTransformPivotPresetButtons
         };
     }
 
@@ -286,8 +301,8 @@ public sealed class PixelStudioLayoutSnapshot
             ActiveColorRect = ActiveColorRect,
             SecondaryColorRect = SecondaryColorRect,
             PaletteColorFieldRect = PaletteColorFieldRect,
-            PaletteColorWheelRect = OffsetRect(PaletteColorWheelRect, deltaX, deltaY),
-            PaletteColorWheelFieldRect = OffsetRect(PaletteColorWheelFieldRect, deltaX, deltaY),
+            PaletteColorWheelRect = PaletteColorWheelRect,
+            PaletteColorWheelFieldRect = PaletteColorWheelFieldRect,
             PaletteAlphaSliderRect = PaletteAlphaSliderRect,
             PaletteAlphaFillRect = PaletteAlphaFillRect,
             PaletteAlphaKnobRect = PaletteAlphaKnobRect,
@@ -314,6 +329,7 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteLibraryRect = PaletteLibraryRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
+            FrameDurationFieldRect = FrameDurationFieldRect,
             FrameRenameFieldRect = FrameRenameFieldRect,
             PalettePromptRect = PalettePromptRect,
             ContextMenuRect = ContextMenuRect,
@@ -324,6 +340,8 @@ public sealed class PixelStudioLayoutSnapshot
             BrushPreviewRect = OffsetRect(BrushPreviewRect, deltaX, deltaY),
             SelectionTransformPreviewRect = SelectionTransformPreviewRect,
             SelectionTransformAngleFieldRect = SelectionTransformAngleFieldRect,
+            SelectionTransformScaleXFieldRect = SelectionTransformScaleXFieldRect,
+            SelectionTransformScaleYFieldRect = SelectionTransformScaleYFieldRect,
             CameraZoom = CameraZoom,
             CameraPanX = CameraPanX,
             CameraPanY = CameraPanY,
@@ -343,11 +361,13 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteSwatches = PaletteSwatches,
             RecentColorSwatches = RecentColorSwatches,
             SavedPaletteRows = SavedPaletteRows,
+            LayerGroupRows = LayerGroupRows,
             LayerRows = LayerRows,
             LayerVisibilityButtons = LayerVisibilityButtons,
             FrameRows = FrameRows,
             CanvasCells = CanvasCells,
-            SelectionHandleRects = SelectionHandleRects
+            SelectionHandleRects = SelectionHandleRects,
+            SelectionTransformPivotPresetButtons = SelectionTransformPivotPresetButtons
         };
     }
 
@@ -404,6 +424,7 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteLibraryRect = PaletteLibraryRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
+            FrameDurationFieldRect = FrameDurationFieldRect,
             FrameRenameFieldRect = FrameRenameFieldRect,
             PalettePromptRect = PalettePromptRect,
             ContextMenuRect = ContextMenuRect,
@@ -414,6 +435,8 @@ public sealed class PixelStudioLayoutSnapshot
             BrushPreviewRect = BrushPreviewRect,
             SelectionTransformPreviewRect = SelectionTransformPreviewRect,
             SelectionTransformAngleFieldRect = SelectionTransformAngleFieldRect,
+            SelectionTransformScaleXFieldRect = SelectionTransformScaleXFieldRect,
+            SelectionTransformScaleYFieldRect = SelectionTransformScaleYFieldRect,
             CameraZoom = CameraZoom,
             CameraPanX = CameraPanX,
             CameraPanY = CameraPanY,
@@ -433,11 +456,13 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteSwatches = PaletteSwatches,
             RecentColorSwatches = RecentColorSwatches,
             SavedPaletteRows = SavedPaletteRows,
+            LayerGroupRows = LayerGroupRows,
             LayerRows = LayerRows,
             LayerVisibilityButtons = LayerVisibilityButtons,
             FrameRows = FrameRows,
             CanvasCells = CanvasCells,
-            SelectionHandleRects = SelectionHandleRects
+            SelectionHandleRects = SelectionHandleRects,
+            SelectionTransformPivotPresetButtons = SelectionTransformPivotPresetButtons
         };
     }
 
@@ -494,6 +519,7 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteLibraryRect = PaletteLibraryRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
+            FrameDurationFieldRect = FrameDurationFieldRect,
             FrameRenameFieldRect = FrameRenameFieldRect,
             PalettePromptRect = PalettePromptRect,
             ContextMenuRect = ContextMenuRect,
@@ -504,6 +530,8 @@ public sealed class PixelStudioLayoutSnapshot
             BrushPreviewRect = BrushPreviewRect,
             SelectionTransformPreviewRect = SelectionTransformPreviewRect,
             SelectionTransformAngleFieldRect = SelectionTransformAngleFieldRect,
+            SelectionTransformScaleXFieldRect = SelectionTransformScaleXFieldRect,
+            SelectionTransformScaleYFieldRect = SelectionTransformScaleYFieldRect,
             CameraZoom = CameraZoom,
             CameraPanX = CameraPanX,
             CameraPanY = CameraPanY,
@@ -523,15 +551,23 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteSwatches = PaletteSwatches,
             RecentColorSwatches = RecentColorSwatches,
             SavedPaletteRows = SavedPaletteRows,
+            LayerGroupRows = LayerGroupRows,
             LayerRows = LayerRows,
             LayerVisibilityButtons = LayerVisibilityButtons,
             FrameRows = FrameRows,
             CanvasCells = CanvasCells,
-            SelectionHandleRects = SelectionHandleRects
+            SelectionHandleRects = SelectionHandleRects,
+            SelectionTransformPivotPresetButtons = SelectionTransformPivotPresetButtons
         };
     }
 
-    public PixelStudioLayoutSnapshot WithSelectionTransformOverlay(UiRect? previewRect, UiRect? angleFieldRect, IReadOnlyList<PixelStudioSelectionHandleRect> handleRects)
+    public PixelStudioLayoutSnapshot WithSelectionTransformOverlay(
+        UiRect? previewRect,
+        UiRect? angleFieldRect,
+        UiRect? scaleXFieldRect,
+        UiRect? scaleYFieldRect,
+        IReadOnlyList<PixelStudioSelectionHandleRect> handleRects,
+        IReadOnlyList<ActionRect<PixelStudioResizeAnchor>> pivotPresetButtons)
     {
         return new PixelStudioLayoutSnapshot
         {
@@ -584,6 +620,7 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteLibraryRect = PaletteLibraryRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
+            FrameDurationFieldRect = FrameDurationFieldRect,
             FrameRenameFieldRect = FrameRenameFieldRect,
             PalettePromptRect = PalettePromptRect,
             ContextMenuRect = ContextMenuRect,
@@ -594,6 +631,8 @@ public sealed class PixelStudioLayoutSnapshot
             BrushPreviewRect = BrushPreviewRect,
             SelectionTransformPreviewRect = previewRect,
             SelectionTransformAngleFieldRect = angleFieldRect,
+            SelectionTransformScaleXFieldRect = scaleXFieldRect,
+            SelectionTransformScaleYFieldRect = scaleYFieldRect,
             CameraZoom = CameraZoom,
             CameraPanX = CameraPanX,
             CameraPanY = CameraPanY,
@@ -613,11 +652,13 @@ public sealed class PixelStudioLayoutSnapshot
             PaletteSwatches = PaletteSwatches,
             RecentColorSwatches = RecentColorSwatches,
             SavedPaletteRows = SavedPaletteRows,
+            LayerGroupRows = LayerGroupRows,
             LayerRows = LayerRows,
             LayerVisibilityButtons = LayerVisibilityButtons,
             FrameRows = FrameRows,
             CanvasCells = CanvasCells,
-            SelectionHandleRects = handleRects
+            SelectionHandleRects = handleRects,
+            SelectionTransformPivotPresetButtons = pivotPresetButtons
         };
     }
 

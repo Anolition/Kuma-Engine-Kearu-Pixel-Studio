@@ -29,12 +29,14 @@ public static class PixelStudioRecoveryPrompt
             ? "Recovered Sprite"
             : snapshot.Document.DocumentName;
         string savedAt = snapshot.SavedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+        int backupCount = PixelStudioRecoveryManager.GetBackupCount();
         string summary =
             "Kuma Engine found an autosaved Kearu Studio recovery file.\n\n" +
             $"Document: {documentName}\n" +
             $"Saved: {savedAt}\n" +
             $"Canvas: {snapshot.Document.CanvasWidth} x {snapshot.Document.CanvasHeight}\n" +
-            $"Frames: {snapshot.Document.Frames.Count}\n\n" +
+            $"Frames: {snapshot.Document.Frames.Count}\n" +
+            $"Backups Kept: {backupCount}\n\n" +
             "Yes = Restore autosaved work\n" +
             "No = Discard recovery\n" +
             "Cancel = Start without restoring";

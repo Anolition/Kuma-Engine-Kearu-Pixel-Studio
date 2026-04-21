@@ -43,16 +43,14 @@ public static class ImageImporter
                 Rgba32 sourcePixel = resizedImage[x, y];
                 if (sourcePixel.A <= 8)
                 {
-                    layer.Pixels[pixelIndex] = -1;
+                    layer.Pixels[pixelIndex] = 0;
                     continue;
                 }
 
                 ColorKey key = new(sourcePixel.R, sourcePixel.G, sourcePixel.B, sourcePixel.A);
                 seenSourceColors.Add(key);
                 uniqueSourceColorCount = seenSourceColors.Count;
-                int paletteIndex = FindNearestPaletteIndex(sourcePixel, pixelStudio.Palette);
-
-                layer.Pixels[pixelIndex] = paletteIndex;
+                layer.Pixels[pixelIndex] = PackPixelColor(sourcePixel);
             }
         }
 
@@ -134,31 +132,17 @@ public static class ImageImporter
         }));
     }
 
-    private static int FindNearestPaletteIndex(Rgba32 sourcePixel, IReadOnlyList<ThemeColor> palette)
+    private static int PackPixelColor(Rgba32 sourcePixel)
     {
-        if (palette.Count == 0)
+        if (sourcePixel.A == 0)
         {
             return 0;
         }
 
-        int bestIndex = 0;
-        float bestDistance = float.MaxValue;
-        for (int index = 0; index < palette.Count; index++)
-        {
-            ThemeColor color = palette[index];
-            float dr = (sourcePixel.R / 255f) - color.R;
-            float dg = (sourcePixel.G / 255f) - color.G;
-            float db = (sourcePixel.B / 255f) - color.B;
-            float da = (sourcePixel.A / 255f) - color.A;
-            float distance = (dr * dr) + (dg * dg) + (db * db) + (da * da * 0.2f);
-            if (distance < bestDistance)
-            {
-                bestDistance = distance;
-                bestIndex = index;
-            }
-        }
-
-        return bestIndex;
+        return (sourcePixel.A << 24)
+            | (sourcePixel.R << 16)
+            | (sourcePixel.G << 8)
+            | sourcePixel.B;
     }
 
     private static string? ShowLinuxImportDialog(string initialDirectory)

@@ -22,6 +22,14 @@ public sealed class EditorSettings
 
     public string? ActivePixelPaletteId { get; init; }
 
+    public IReadOnlyList<PaletteColorSetting> PixelWorkingPalette { get; init; } = [];
+
+    public int PixelWorkingPaletteActiveIndex { get; init; }
+
+    public IReadOnlyList<PaletteColorSetting> PixelRecentColors { get; init; } = [];
+
+    public PaletteColorSetting? PixelSecondaryColor { get; init; }
+
     public bool PromptForPaletteGenerationAfterImport { get; init; } = true;
 
     public PixelStudioColorPickerMode PixelColorPickerMode { get; init; } = PixelStudioColorPickerMode.RgbField;

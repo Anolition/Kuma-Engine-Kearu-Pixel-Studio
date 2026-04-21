@@ -6,6 +6,8 @@ public sealed class PixelStudioProjectDocument
 {
     public string DocumentName { get; init; } = "Blank Sprite";
 
+    public bool UsesDirectColorPixels { get; init; }
+
     public int CanvasWidth { get; init; } = 32;
 
     public int CanvasHeight { get; init; } = 32;
@@ -28,11 +30,21 @@ public sealed class PixelStudioProjectDocument
 
     public bool ShowNextOnion { get; init; }
 
+    public bool AllowDualOnion { get; init; }
+
     public float OnionOpacity { get; init; } = 0.42f;
 
     public bool IsPlaying { get; init; }
 
     public int PreviewFrameIndex { get; init; }
+
+    public bool LoopRangeEnabled { get; init; }
+
+    public int LoopStartFrameIndex { get; init; }
+
+    public int LoopEndFrameIndex { get; init; }
+
+    public PixelStudioPlaybackLoopMode PlaybackLoopMode { get; init; } = PixelStudioPlaybackLoopMode.Forward;
 
     public PixelStudioToolKind ActiveTool { get; init; } = PixelStudioToolKind.Pencil;
 
@@ -67,6 +79,10 @@ public sealed class PixelStudioProjectFrameDocument
 public sealed class PixelStudioProjectLayerDocument
 {
     public string Name { get; init; } = "Layer";
+
+    public string? GroupId { get; init; }
+
+    public string? GroupName { get; init; }
 
     public bool IsVisible { get; init; } = true;
 

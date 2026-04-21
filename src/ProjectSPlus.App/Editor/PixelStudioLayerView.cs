@@ -4,6 +4,10 @@ public sealed class PixelStudioLayerView
 {
     public required string Name { get; init; }
 
+    public string? GroupId { get; init; }
+
+    public string? GroupName { get; init; }
+
     public required bool IsVisible { get; init; }
 
     public required bool IsLocked { get; init; }

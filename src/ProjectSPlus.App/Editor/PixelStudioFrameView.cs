@@ -11,4 +11,10 @@ public sealed class PixelStudioFrameView
     public required bool IsPreviewing { get; init; }
 
     public required bool IsSelected { get; init; }
+
+    public bool IsInLoopRange { get; init; }
+
+    public bool IsLoopStart { get; init; }
+
+    public bool IsLoopEnd { get; init; }
 }

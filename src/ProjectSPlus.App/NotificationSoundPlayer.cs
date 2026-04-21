@@ -11,7 +11,7 @@ internal static class NotificationSoundPlayer
     private const uint WindowsCrashBeep = 0x00000010;
     private static readonly object PlaybackSync = new();
     private static readonly List<MediaPlayback> ActivePlaybacks = [];
-    private static readonly SoundClip WarningClip = new("warning-frog-primary.mp3", 0.18, 0.86);
+    private static readonly SoundClip WarningClip = new("warning-frog-secondary.mp3", 0.08, 1.08);
     private static readonly SoundClip CrashClip = new("crash-bear.mp3", 0, null);
 
     public static EditorNotificationSoundMode SoundMode { get; set; } = EditorNotificationSoundMode.Custom;

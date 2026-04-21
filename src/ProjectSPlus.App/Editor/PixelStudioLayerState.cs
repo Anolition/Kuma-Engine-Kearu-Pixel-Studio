@@ -4,6 +4,10 @@ public sealed class PixelStudioLayerState
 {
     public required string Name { get; set; }
 
+    public string? GroupId { get; set; }
+
+    public string? GroupName { get; set; }
+
     public bool IsVisible { get; set; } = true;
 
     public bool IsLocked { get; set; }

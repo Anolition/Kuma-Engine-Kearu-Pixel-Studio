@@ -15,6 +15,8 @@ public sealed class PixelStudioViewState
 
     public int BrushSize { get; set; }
 
+    public PixelStudioBrushMode BrushMode { get; set; } = PixelStudioBrushMode.Round;
+
     public float CanvasPanX { get; set; }
 
     public float CanvasPanY { get; set; }
@@ -22,6 +24,10 @@ public sealed class PixelStudioViewState
     public bool ShowGrid { get; set; }
 
     public PixelStudioMirrorMode MirrorMode { get; set; }
+
+    public float MirrorAxisX { get; set; }
+
+    public float MirrorAxisY { get; set; }
 
     public int FramesPerSecond { get; set; }
 
@@ -31,9 +37,19 @@ public sealed class PixelStudioViewState
 
     public bool ShowNextOnion { get; set; }
 
+    public bool AllowDualOnion { get; set; }
+
     public float OnionOpacity { get; set; } = 0.42f;
 
     public bool IsPlaying { get; set; }
+
+    public bool LoopRangeEnabled { get; set; }
+
+    public int LoopStartFrameIndex { get; set; }
+
+    public int LoopEndFrameIndex { get; set; }
+
+    public PixelStudioPlaybackLoopMode PlaybackLoopMode { get; set; } = PixelStudioPlaybackLoopMode.Forward;
 
     public bool CanUndo { get; set; }
 
@@ -67,6 +83,12 @@ public sealed class PixelStudioViewState
 
     public string ActivePaletteName { get; set; } = "Current Palette";
 
+    public bool WorkingPaletteActive { get; set; }
+
+    public bool DefaultPaletteActive { get; set; }
+
+    public bool DefaultPaletteSelected { get; set; }
+
     public PixelStudioColorPickerMode ColorPickerMode { get; set; } = PixelStudioColorPickerMode.RgbField;
 
     public bool PaletteLibraryVisible { get; set; }
@@ -84,6 +106,12 @@ public sealed class PixelStudioViewState
     public bool FrameRenameActive { get; set; }
 
     public bool FrameRenameSelected { get; set; }
+
+    public bool FrameDurationFieldActive { get; set; }
+
+    public bool FrameDurationFieldSelected { get; set; }
+
+    public string FrameDurationBuffer { get; set; } = string.Empty;
 
     public bool HoverTooltipVisible { get; set; }
 
@@ -105,6 +133,14 @@ public sealed class PixelStudioViewState
 
     public string SelectionTransformAngleBuffer { get; set; } = string.Empty;
 
+    public bool SelectionTransformScaleXFieldActive { get; set; }
+
+    public bool SelectionTransformScaleYFieldActive { get; set; }
+
+    public string SelectionTransformScaleXBuffer { get; set; } = string.Empty;
+
+    public string SelectionTransformScaleYBuffer { get; set; } = string.Empty;
+
     public int SelectionX { get; set; }
 
     public int SelectionY { get; set; }
@@ -117,6 +153,8 @@ public sealed class PixelStudioViewState
 
     public IReadOnlySet<int> SelectionMaskIndices { get; set; } = new HashSet<int>();
 
+    public IReadOnlyList<ThemeColor?> SelectionTransformSourceColors { get; set; } = [];
+
     public bool SelectionTransformPreviewVisible { get; set; }
 
     public int SelectionTransformPreviewX { get; set; }
@@ -128,6 +166,10 @@ public sealed class PixelStudioViewState
     public int SelectionTransformPreviewHeight { get; set; }
 
     public float SelectionTransformPreviewRotationDegrees { get; set; }
+
+    public float SelectionTransformPreviewScaleX { get; set; } = 1f;
+
+    public float SelectionTransformPreviewScaleY { get; set; } = 1f;
 
     public float SelectionTransformPivotX { get; set; }
 
@@ -165,6 +207,14 @@ public sealed class PixelStudioViewState
 
     public string WarningDialogConfirmLabel { get; set; } = "Continue";
 
+    public bool WarningDialogAlternateVisible { get; set; }
+
+    public string WarningDialogAlternateLabel { get; set; } = string.Empty;
+
+    public bool WarningDialogTertiaryVisible { get; set; }
+
+    public string WarningDialogTertiaryLabel { get; set; } = string.Empty;
+
     public string WarningDialogCancelLabel { get; set; } = "Cancel";
 
     public bool WarningToastVisible { get; set; }
@@ -182,6 +232,14 @@ public sealed class PixelStudioViewState
     public bool AutosavePending { get; set; }
 
     public long AutosaveAnimationEndsAtUnixMilliseconds { get; set; }
+
+    public int AutosaveCountdownSeconds { get; set; }
+
+    public int RecoveryBackupCount { get; set; }
+
+    public bool AutosaveBannerVisible { get; set; }
+
+    public string AutosaveBannerText { get; set; } = string.Empty;
 
     public bool RecoveryBannerVisible { get; set; }
 
@@ -223,15 +281,41 @@ public sealed class PixelStudioViewState
 
     public int PaletteSwatchScrollRow { get; set; }
 
+    public bool PaletteReorderActive { get; set; }
+
+    public int PaletteReorderSourceIndex { get; set; } = -1;
+
+    public int PaletteReorderTargetIndex { get; set; } = -1;
+
     public int SavedPaletteScrollRow { get; set; }
 
     public int LayerScrollRow { get; set; }
 
     public int FrameScrollRow { get; set; }
 
+    public IReadOnlySet<string> CollapsedLayerGroupIds { get; set; } = new HashSet<string>(StringComparer.Ordinal);
+
+    public bool LayerReorderActive { get; set; }
+
+    public int LayerReorderSourceIndex { get; set; } = -1;
+
+    public int LayerReorderInsertIndex { get; set; } = -1;
+
+    public string? LayerReorderJoinGroupId { get; set; }
+
+    public int LayerReorderJoinAnchorLayerIndex { get; set; } = -1;
+
+    public bool FrameReorderActive { get; set; }
+
+    public int FrameReorderSourceIndex { get; set; } = -1;
+
+    public int FrameReorderInsertIndex { get; set; } = -1;
+
     public string PaletteRenameBuffer { get; set; } = string.Empty;
 
     public string LayerRenameBuffer { get; set; } = string.Empty;
+
+    public bool LayerRenameTargetsGroup { get; set; }
 
     public string FrameRenameBuffer { get; set; } = string.Empty;
 

@@ -28,11 +28,21 @@ public sealed class PixelStudioState
 
     public bool ShowNextOnion { get; set; }
 
+    public bool AllowDualOnion { get; set; }
+
     public float OnionOpacity { get; set; } = 0.42f;
 
     public bool IsPlaying { get; set; }
 
     public int PreviewFrameIndex { get; set; }
+
+    public bool LoopRangeEnabled { get; set; }
+
+    public int LoopStartFrameIndex { get; set; }
+
+    public int LoopEndFrameIndex { get; set; }
+
+    public PixelStudioPlaybackLoopMode PlaybackLoopMode { get; set; } = PixelStudioPlaybackLoopMode.Forward;
 
     public PixelStudioToolKind ActiveTool { get; set; } = PixelStudioToolKind.Pencil;
 

@@ -11,7 +11,10 @@ public sealed partial class EditorWindowScene
         PaletteRename,
         LayerRename,
         FrameRename,
+        FrameDuration,
         TransformAngle,
+        TransformScaleX,
+        TransformScaleY,
         CanvasResizeWidth,
         CanvasResizeHeight
     }
@@ -138,7 +141,10 @@ public sealed partial class EditorWindowScene
             EditableTextTarget.PaletteRename => _paletteRenameActive,
             EditableTextTarget.LayerRename => _layerRenameActive,
             EditableTextTarget.FrameRename => _frameRenameActive,
+            EditableTextTarget.FrameDuration => _frameDurationFieldActive,
             EditableTextTarget.TransformAngle => _selectionTransformAngleFieldActive,
+            EditableTextTarget.TransformScaleX => _selectionTransformScaleXFieldActive,
+            EditableTextTarget.TransformScaleY => _selectionTransformScaleYFieldActive,
             EditableTextTarget.CanvasResizeWidth => _canvasResizeDialogVisible && _canvasResizeActiveField == CanvasResizeInputField.Width,
             EditableTextTarget.CanvasResizeHeight => _canvasResizeDialogVisible && _canvasResizeActiveField == CanvasResizeInputField.Height,
             _ => false
@@ -167,8 +173,17 @@ public sealed partial class EditorWindowScene
             case EditableTextTarget.FrameRename:
                 DeleteFrameRenameText();
                 break;
+            case EditableTextTarget.FrameDuration:
+                DeleteFrameDurationText();
+                break;
             case EditableTextTarget.TransformAngle:
                 DeleteSelectionTransformAngleText();
+                break;
+            case EditableTextTarget.TransformScaleX:
+                DeleteSelectionTransformScaleText(horizontal: true);
+                break;
+            case EditableTextTarget.TransformScaleY:
+                DeleteSelectionTransformScaleText(horizontal: false);
                 break;
             case EditableTextTarget.CanvasResizeWidth:
             case EditableTextTarget.CanvasResizeHeight:
@@ -287,7 +302,7 @@ public sealed partial class EditorWindowScene
             }
 
             _layerRenameBuffer = string.Empty;
-            RefreshPixelStudioView("Editing layer name.");
+            RefreshPixelStudioView(_layerRenameTargetsGroup ? "Editing group name." : "Editing layer name.");
             return;
         }
 
@@ -297,7 +312,7 @@ public sealed partial class EditorWindowScene
         }
 
         _layerRenameBuffer = _layerRenameBuffer[..^1];
-        RefreshPixelStudioView("Editing layer name.");
+        RefreshPixelStudioView(_layerRenameTargetsGroup ? "Editing group name." : "Editing layer name.");
     }
 
     private void DeleteFrameRenameText()
@@ -323,6 +338,30 @@ public sealed partial class EditorWindowScene
         RefreshPixelStudioView("Editing frame name.");
     }
 
+    private void DeleteFrameDurationText()
+    {
+        if (ConsumeSelectedText(EditableTextTarget.FrameDuration))
+        {
+            if (_frameDurationBuffer.Length == 0)
+            {
+                return;
+            }
+
+            _frameDurationBuffer = string.Empty;
+        }
+        else
+        {
+            if (_frameDurationBuffer.Length == 0)
+            {
+                return;
+            }
+
+            _frameDurationBuffer = _frameDurationBuffer[..^1];
+        }
+
+        RefreshPixelStudioView("Editing frame duration.");
+    }
+
     private void DeleteSelectionTransformAngleText()
     {
         if (ConsumeSelectedText(EditableTextTarget.TransformAngle))
@@ -345,6 +384,42 @@ public sealed partial class EditorWindowScene
         }
 
         UpdateSelectionTransformAngleFromBuffer();
+    }
+
+    private void DeleteSelectionTransformScaleText(bool horizontal)
+    {
+        EditableTextTarget target = horizontal ? EditableTextTarget.TransformScaleX : EditableTextTarget.TransformScaleY;
+        string buffer = horizontal ? _selectionTransformScaleXBuffer : _selectionTransformScaleYBuffer;
+
+        if (ConsumeSelectedText(target))
+        {
+            if (buffer.Length == 0)
+            {
+                return;
+            }
+
+            buffer = string.Empty;
+        }
+        else
+        {
+            if (buffer.Length == 0)
+            {
+                return;
+            }
+
+            buffer = buffer[..^1];
+        }
+
+        if (horizontal)
+        {
+            _selectionTransformScaleXBuffer = buffer;
+        }
+        else
+        {
+            _selectionTransformScaleYBuffer = buffer;
+        }
+
+        UpdateSelectionTransformScaleFromBuffer(horizontal);
     }
 
     private void DeleteCanvasResizeText()

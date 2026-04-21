@@ -8,6 +8,8 @@ public sealed class PixelStudioSavedPaletteView
 
     public required string Name { get; init; }
 
+    public required bool IsLocked { get; init; }
+
     public required bool IsActive { get; init; }
 
     public required bool IsSelected { get; init; }

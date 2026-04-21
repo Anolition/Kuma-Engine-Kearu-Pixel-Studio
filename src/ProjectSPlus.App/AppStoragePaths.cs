@@ -21,6 +21,8 @@ internal static class AppStoragePaths
 
     public static string RecoveryFilePath => Path.Combine(RecoveryDirectory, "kearu-studio-recovery.json");
 
+    public static string RecoveryBackupsDirectory => Path.Combine(RecoveryDirectory, "Backups");
+
     public static string DefaultProjectLibraryPath => Path.Combine(AppDataRoot, "Projects");
 
     public static string LegacySettingsFilePath => Path.Combine(AppContext.BaseDirectory, "settings", "appsettings.json");
@@ -31,6 +33,7 @@ internal static class AppStoragePaths
         Directory.CreateDirectory(SettingsDirectory);
         Directory.CreateDirectory(LogsDirectory);
         Directory.CreateDirectory(RecoveryDirectory);
+        Directory.CreateDirectory(RecoveryBackupsDirectory);
         Directory.CreateDirectory(DefaultProjectLibraryPath);
     }
 
@@ -74,6 +77,10 @@ internal static class AppStoragePaths
                 Layout = settings.Editor.Layout,
                 PixelPalettes = settings.Editor.PixelPalettes,
                 ActivePixelPaletteId = settings.Editor.ActivePixelPaletteId,
+                PixelWorkingPalette = settings.Editor.PixelWorkingPalette,
+                PixelWorkingPaletteActiveIndex = settings.Editor.PixelWorkingPaletteActiveIndex,
+                PixelRecentColors = settings.Editor.PixelRecentColors,
+                PixelSecondaryColor = settings.Editor.PixelSecondaryColor,
                 PromptForPaletteGenerationAfterImport = settings.Editor.PromptForPaletteGenerationAfterImport,
                 PixelColorPickerMode = settings.Editor.PixelColorPickerMode,
                 NotificationSoundMode = settings.Editor.NotificationSoundMode,

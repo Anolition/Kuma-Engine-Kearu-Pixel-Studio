@@ -62,6 +62,14 @@ public sealed class JsonSettingsStore
         WindowSettings normalizedWindow = settings.Window.Normalize();
         EditorLayoutSettings normalizedLayout = settings.Editor.Layout.Normalize();
         int normalizedAutosaveIntervalSeconds = EditorAutosaveOptions.Normalize(settings.Editor.PixelAutosaveIntervalSeconds);
+        List<PaletteColorSetting> normalizedWorkingPalette = NormalizePaletteList(settings.Editor.PixelWorkingPalette, 24);
+        int normalizedWorkingPaletteActiveIndex = normalizedWorkingPalette.Count == 0
+            ? 0
+            : Math.Clamp(settings.Editor.PixelWorkingPaletteActiveIndex, 0, normalizedWorkingPalette.Count - 1);
+        List<PaletteColorSetting> normalizedRecentColors = NormalizePaletteList(settings.Editor.PixelRecentColors, 8);
+        PaletteColorSetting? normalizedSecondaryColor = settings.Editor.PixelSecondaryColor is null
+            ? null
+            : ClonePaletteColor(settings.Editor.PixelSecondaryColor);
         bool windowChanged =
             normalizedWindow.Width != settings.Window.Width
             || normalizedWindow.Height != settings.Window.Height
@@ -89,7 +97,12 @@ public sealed class JsonSettingsStore
             || normalizedLayout.PixelAnimationPreviewOffsetY != settings.Editor.Layout.PixelAnimationPreviewOffsetY
             || normalizedLayout.PixelAnimationPreviewWidth != settings.Editor.Layout.PixelAnimationPreviewWidth
             || normalizedLayout.PixelAnimationPreviewHeight != settings.Editor.Layout.PixelAnimationPreviewHeight;
-        bool editorChanged = normalizedAutosaveIntervalSeconds != settings.Editor.PixelAutosaveIntervalSeconds;
+        bool editorChanged =
+            normalizedAutosaveIntervalSeconds != settings.Editor.PixelAutosaveIntervalSeconds
+            || normalizedWorkingPaletteActiveIndex != settings.Editor.PixelWorkingPaletteActiveIndex
+            || !PaletteListsEqual(normalizedWorkingPalette, settings.Editor.PixelWorkingPalette)
+            || !PaletteListsEqual(normalizedRecentColors, settings.Editor.PixelRecentColors)
+            || !PaletteColorsEqual(normalizedSecondaryColor, settings.Editor.PixelSecondaryColor);
 
         if (!windowChanged && !layoutChanged && !editorChanged)
         {
@@ -111,6 +124,10 @@ public sealed class JsonSettingsStore
                 Layout = normalizedLayout,
                 PixelPalettes = settings.Editor.PixelPalettes,
                 ActivePixelPaletteId = settings.Editor.ActivePixelPaletteId,
+                PixelWorkingPalette = normalizedWorkingPalette,
+                PixelWorkingPaletteActiveIndex = normalizedWorkingPaletteActiveIndex,
+                PixelRecentColors = normalizedRecentColors,
+                PixelSecondaryColor = normalizedSecondaryColor,
                 PromptForPaletteGenerationAfterImport = settings.Editor.PromptForPaletteGenerationAfterImport,
                 PixelColorPickerMode = settings.Editor.PixelColorPickerMode,
                 NotificationSoundMode = settings.Editor.NotificationSoundMode,
@@ -119,5 +136,83 @@ public sealed class JsonSettingsStore
                 CustomThemes = settings.Editor.CustomThemes
             }
         };
+    }
+
+    private static List<PaletteColorSetting> NormalizePaletteList(IReadOnlyList<PaletteColorSetting>? colors, int maxCount)
+    {
+        if (colors is null || colors.Count == 0)
+        {
+            return [];
+        }
+
+        List<PaletteColorSetting> normalized = [];
+        foreach (PaletteColorSetting? color in colors.Take(maxCount))
+        {
+            if (color is null)
+            {
+                continue;
+            }
+
+            normalized.Add(ClonePaletteColor(color));
+        }
+
+        return normalized;
+    }
+
+    private static PaletteColorSetting ClonePaletteColor(PaletteColorSetting color)
+    {
+        return new PaletteColorSetting
+        {
+            R = color.R,
+            G = color.G,
+            B = color.B,
+            A = color.A
+        };
+    }
+
+    private static bool PaletteListsEqual(IReadOnlyList<PaletteColorSetting>? left, IReadOnlyList<PaletteColorSetting>? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null)
+        {
+            return false;
+        }
+
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < left.Count; index++)
+        {
+            if (!PaletteColorsEqual(left[index], right[index]))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool PaletteColorsEqual(PaletteColorSetting? left, PaletteColorSetting? right)
+    {
+        if (ReferenceEquals(left, right))
+        {
+            return true;
+        }
+
+        if (left is null || right is null)
+        {
+            return false;
+        }
+
+        return left.R == right.R
+            && left.G == right.G
+            && left.B == right.B
+            && left.A == right.A;
     }
 }
