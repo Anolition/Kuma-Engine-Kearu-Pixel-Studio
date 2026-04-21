@@ -78,7 +78,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private bool _pixelTimelineVisible;
     private PixelStudioColorPickerMode _pixelColorPickerMode;
     private EditorNotificationSoundMode _notificationSoundMode;
-    private int _pixelAutosaveIntervalSeconds = 10;
+    private int _pixelAutosaveIntervalSeconds = 60;
     private int _transformRotationSnapDegrees = 45;
     private ShellDragMode _shellDragMode;
     private PixelStudioDragMode _pixelDragMode;
@@ -101,7 +101,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private static readonly int[] TransformRotationSnapSteps = [15, 30, 45, 90];
 
     public EditorWindowScene(EditorShell shell, string initialThemeName)
-        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, [], 0, [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, 10, 45, [], null, false)
+        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, [], 0, [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, 60, 45, [], null, false)
     {
     }
 

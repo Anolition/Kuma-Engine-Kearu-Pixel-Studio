@@ -9927,7 +9927,7 @@ public sealed partial class EditorWindowScene
             PixelStudioAction.AddPaletteSwatch => "Add",
             PixelStudioAction.GeneratePaletteRamp => "Ramp",
             PixelStudioAction.SaveCurrentPalette => "Save",
-            PixelStudioAction.UpdateSelectedPalette => "Update",
+            PixelStudioAction.UpdateSelectedPalette => "Sync",
             PixelStudioAction.DuplicateSelectedPalette => "Dup",
             PixelStudioAction.ImportPalette => "Import",
             PixelStudioAction.ExportPalette => "Export",

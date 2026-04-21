@@ -3510,7 +3510,7 @@ public sealed class EditorShellRenderer : IDisposable
             PixelStudioAction.GeneratePaletteRamp => "Ramp",
             PixelStudioAction.NewBlankPalette => "Blank",
             PixelStudioAction.SaveCurrentPalette => "Save",
-            PixelStudioAction.UpdateSelectedPalette => "Update",
+            PixelStudioAction.UpdateSelectedPalette => "Sync",
             PixelStudioAction.DuplicateSelectedPalette => "Dup",
             PixelStudioAction.ImportPalette => "Import",
             PixelStudioAction.ExportPalette => "Export",

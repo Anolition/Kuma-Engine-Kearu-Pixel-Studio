@@ -36,7 +36,7 @@ public sealed class EditorSettings
 
     public EditorNotificationSoundMode NotificationSoundMode { get; init; } = EditorNotificationSoundMode.Custom;
 
-    public int PixelAutosaveIntervalSeconds { get; init; } = 10;
+    public int PixelAutosaveIntervalSeconds { get; init; } = 60;
 
     public int TransformRotationSnapDegrees { get; init; } = 45;
 
