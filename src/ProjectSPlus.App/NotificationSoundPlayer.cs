@@ -9,12 +9,18 @@ internal static class NotificationSoundPlayer
 {
     private const uint WindowsWarningBeep = 0x00000030;
     private const uint WindowsCrashBeep = 0x00000010;
+    private const string WarningFrogProfileFileName = "warning-frog-primary.mp3";
+    private const string KumaSoundProfileLabel = "Kuma";
     private static readonly object PlaybackSync = new();
     private static readonly List<MediaPlayback> ActivePlaybacks = [];
-    private static readonly SoundClip WarningClip = new("warning-frog-secondary.mp3", 0.08, 1.08);
+    private static readonly SoundClip WarningClip = new(WarningFrogProfileFileName, 0.18, 0.86);
     private static readonly SoundClip CrashClip = new("crash-bear.mp3", 0, null);
 
     public static EditorNotificationSoundMode SoundMode { get; set; } = EditorNotificationSoundMode.Custom;
+
+    public static string CustomWarningSoundLabel => KumaSoundProfileLabel;
+
+    public static string CustomCrashSoundLabel => KumaSoundProfileLabel;
 
     public static void PlayWarning()
     {
@@ -51,6 +57,16 @@ internal static class NotificationSoundPlayer
         if (!PlayClip(CrashClip, WindowsCrashBeep))
         {
             TryPlayWindowsBeep(WindowsCrashBeep);
+        }
+    }
+
+    public static void PlayCrashForCrashReporter()
+    {
+        PlayCrash();
+
+        if (SoundMode == EditorNotificationSoundMode.Custom && OperatingSystem.IsWindows())
+        {
+            Thread.Sleep(260);
         }
     }
 
@@ -102,7 +118,7 @@ internal static class NotificationSoundPlayer
             RegisterPlayback(playback);
 
             playback.StartTimer = new Timer(
-                _ => BeginPlayback(playback, startSeconds, durationSeconds),
+                _ => BeginPlayback(playback, startSeconds, durationSeconds, fallbackBeep),
                 null,
                 dueTime: 140,
                 period: Timeout.Infinite);
@@ -115,7 +131,7 @@ internal static class NotificationSoundPlayer
     }
 
     [SupportedOSPlatform("windows")]
-    private static void BeginPlayback(MediaPlayback playback, double startSeconds, double? durationSeconds)
+    private static void BeginPlayback(MediaPlayback playback, double startSeconds, double? durationSeconds, uint fallbackBeep)
     {
         try
         {
@@ -137,7 +153,7 @@ internal static class NotificationSoundPlayer
         {
             LogPlaybackFailure(ex);
             ReleasePlayback(playback);
-            TryPlayWindowsBeep(WindowsWarningBeep);
+            TryPlayWindowsBeep(fallbackBeep);
         }
     }
 

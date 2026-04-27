@@ -44,6 +44,8 @@ public sealed class PixelStudioState
 
     public PixelStudioPlaybackLoopMode PlaybackLoopMode { get; set; } = PixelStudioPlaybackLoopMode.Forward;
 
+    public int ActiveAnimationClipIndex { get; set; } = -1;
+
     public PixelStudioToolKind ActiveTool { get; set; } = PixelStudioToolKind.Pencil;
 
     public PixelStudioSelectionMode SelectionMode { get; set; } = PixelStudioSelectionMode.Box;
@@ -77,6 +79,8 @@ public sealed class PixelStudioState
     public int ActiveLayerIndex { get; set; }
 
     public required List<ThemeColor> Palette { get; init; }
+
+    public required List<PixelStudioAnimationClip> AnimationClips { get; init; }
 
     public required List<PixelStudioFrameState> Frames { get; init; }
 }

@@ -51,6 +51,16 @@ public sealed class PixelStudioViewState
 
     public PixelStudioPlaybackLoopMode PlaybackLoopMode { get; set; } = PixelStudioPlaybackLoopMode.Forward;
 
+    public int ActiveAnimationClipIndex { get; set; } = -1;
+
+    public string ActiveAnimationClipLabel { get; set; } = string.Empty;
+
+    public IReadOnlyList<PixelStudioAnimationClip> AnimationClips { get; set; } = [];
+
+    public bool AnimationClipRenameActive { get; set; }
+
+    public bool AnimationClipRenameSelected { get; set; }
+
     public bool CanUndo { get; set; }
 
     public bool CanRedo { get; set; }
@@ -94,6 +104,8 @@ public sealed class PixelStudioViewState
     public bool PaletteLibraryVisible { get; set; }
 
     public bool PalettePromptVisible { get; set; }
+
+    public string AnimationClipRenameBuffer { get; set; } = string.Empty;
 
     public bool PaletteRenameActive { get; set; }
 
@@ -310,6 +322,14 @@ public sealed class PixelStudioViewState
     public int FrameReorderSourceIndex { get; set; } = -1;
 
     public int FrameReorderInsertIndex { get; set; } = -1;
+
+    public float FrameReorderPreviewX { get; set; }
+
+    public float FrameReorderPreviewY { get; set; }
+
+    public float FrameReorderPreviewGrabOffsetX { get; set; }
+
+    public float FrameReorderPreviewGrabOffsetY { get; set; }
 
     public string PaletteRenameBuffer { get; set; } = string.Empty;
 

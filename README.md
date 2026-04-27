@@ -31,6 +31,7 @@ Prerequisites:
 
 - Windows
 - .NET SDK `8.0.419` or a compatible .NET 8 SDK
+- A non-OneDrive checkout. On this machine the active source of truth is `C:\Dev\Kuma-Engine-Kearu-Pixel-Studio`.
 
 Build:
 
@@ -45,6 +46,12 @@ Run:
 powershell -ExecutionPolicy Bypass -File .\Run-ProjectSPlus.ps1
 ```
 
+Ship-readiness check:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\Test-KumaShipReadiness.ps1
+```
+
 ## Project Layout
 
 - `src/` application, editor, runtime, and shared code
@@ -56,7 +63,9 @@ powershell -ExecutionPolicy Bypass -File .\Run-ProjectSPlus.ps1
 ## Data And Storage
 
 - App-managed settings, logs, autosaves, and recovery files are stored in `%LocalAppData%\Kuma Engine`
-- User artwork and exported files are saved wherever the user chooses
+- The default project library is `%LocalAppData%\Kuma Engine\Projects`
+- OneDrive-backed folders are refused for app-managed project paths and Pixel Studio save/export targets
+- User artwork and exported files are saved wherever the user chooses, as long as that location is not OneDrive-backed
 - The repository is not intended to be the place where normal user project saves live
 
 ## Version History
@@ -71,6 +80,7 @@ Tagged milestone versions are published in git and on GitHub:
 - `kuma-engine-0.0.25`
 - `kuma-engine-0.0.30`
 - `kuma-engine-0.0.35`
+- `kuma-engine-0.0.40`
 
 ## Roadmap Direction
 

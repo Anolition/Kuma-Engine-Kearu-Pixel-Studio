@@ -1,5 +1,5 @@
 param(
-    [string]$Version = "0.0.35",
+    [string]$Version = "0.0.40",
     [string]$Configuration = "Release",
     [string]$RuntimeIdentifier = "win-x64",
     [switch]$SelfContained,
@@ -11,6 +11,11 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+$guardScript = Join-Path $PSScriptRoot "KumaWorkflowGuards.ps1"
+. $guardScript
+
+Assert-KumaSourceCheckout -ProjectRoot $projectRoot -Purpose "publish Kuma Engine"
+
 $appProject = Join-Path $projectRoot "src\ProjectSPlus.App\ProjectSPlus.App.csproj"
 $nugetConfig = Join-Path $projectRoot "NuGet.Config"
 $releaseRoot = Join-Path $projectRoot "artifacts\releases"
@@ -26,6 +31,8 @@ if (-not (Test-Path -LiteralPath $appProject)) {
 if (-not (Test-Path -LiteralPath $nugetConfig)) {
     throw "Could not find NuGet.Config at $nugetConfig"
 }
+
+Assert-KumaNonOneDrivePath -Path $publishDir -Description "publish Kuma Engine"
 
 if (Test-Path -LiteralPath $publishDir) {
     Remove-Item -LiteralPath $publishDir -Recurse -Force
@@ -87,7 +94,9 @@ $manifestLines = @(
     "SelfContained: $selfContainedValue",
     "SingleFile: $singleFileValue",
     "Commit: $gitCommit",
-    "BuiltAt: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')"
+    "BuiltAt: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss K')",
+    "SourceRoot: $projectRoot",
+    "AppDataRoot: %LocalAppData%\Kuma Engine"
 )
 $manifestLines | Set-Content -LiteralPath $manifestPath
 

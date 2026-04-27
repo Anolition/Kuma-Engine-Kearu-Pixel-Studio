@@ -56,8 +56,12 @@ internal static class AppStoragePaths
 
     public static AppSettings NormalizeAppOwnedPaths(AppSettings settings)
     {
-        string normalizedProjectLibraryPath = NormalizeManagedProjectLibraryPath(settings.Editor.ProjectLibraryPath);
-        if (string.Equals(normalizedProjectLibraryPath, settings.Editor.ProjectLibraryPath, StringComparison.OrdinalIgnoreCase))
+        string normalizedProjectLibraryPath = NormalizeProjectLibraryPath(settings.Editor.ProjectLibraryPath);
+        IReadOnlyList<RecentProjectEntry> normalizedRecentProjects = NormalizeRecentProjects(settings.Editor.RecentProjects);
+        string? normalizedLastProjectPath = NormalizeStoredProjectPath(settings.Editor.LastProjectPath);
+        if (string.Equals(normalizedProjectLibraryPath, settings.Editor.ProjectLibraryPath, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(normalizedLastProjectPath, settings.Editor.LastProjectPath, StringComparison.OrdinalIgnoreCase)
+            && RecentProjectsEqual(normalizedRecentProjects, settings.Editor.RecentProjects))
         {
             return settings;
         }
@@ -72,8 +76,8 @@ internal static class AppStoragePaths
                 FontSizePreset = settings.Editor.FontSizePreset,
                 Shortcuts = settings.Editor.Shortcuts,
                 ProjectLibraryPath = normalizedProjectLibraryPath,
-                RecentProjects = settings.Editor.RecentProjects,
-                LastProjectPath = settings.Editor.LastProjectPath,
+                RecentProjects = normalizedRecentProjects,
+                LastProjectPath = normalizedLastProjectPath,
                 Layout = settings.Editor.Layout,
                 PixelPalettes = settings.Editor.PixelPalettes,
                 ActivePixelPaletteId = settings.Editor.ActivePixelPaletteId,
@@ -91,14 +95,72 @@ internal static class AppStoragePaths
         };
     }
 
-    private static string NormalizeManagedProjectLibraryPath(string? projectLibraryPath)
+    public static bool CanStoreUserPath(string? path)
     {
-        if (string.IsNullOrWhiteSpace(projectLibraryPath) || IsLegacyManagedProjectLibraryPath(projectLibraryPath))
+        return !string.IsNullOrWhiteSpace(path) && !IsOneDrivePath(path);
+    }
+
+    public static string NormalizeProjectLibraryPath(string? projectLibraryPath)
+    {
+        if (string.IsNullOrWhiteSpace(projectLibraryPath))
         {
             return DefaultProjectLibraryPath;
         }
 
-        return projectLibraryPath;
+        try
+        {
+            string normalizedPath = Path.GetFullPath(projectLibraryPath);
+            if (IsLegacyManagedProjectLibraryPath(normalizedPath) || IsOneDrivePath(normalizedPath))
+            {
+                return DefaultProjectLibraryPath;
+            }
+
+            return normalizedPath;
+        }
+        catch
+        {
+            return DefaultProjectLibraryPath;
+        }
+    }
+
+    public static bool IsOneDrivePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return false;
+        }
+
+        try
+        {
+            string normalizedPath = NormalizeDirectoryPrefix(path);
+            string userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+            string[] candidateRoots =
+            [
+                Environment.GetEnvironmentVariable("OneDrive") ?? string.Empty,
+                Environment.GetEnvironmentVariable("OneDriveConsumer") ?? string.Empty,
+                Environment.GetEnvironmentVariable("OneDriveCommercial") ?? string.Empty,
+                string.IsNullOrWhiteSpace(userProfile) ? string.Empty : Path.Combine(userProfile, "OneDrive")
+            ];
+
+            foreach (string candidateRoot in candidateRoots)
+            {
+                if (string.IsNullOrWhiteSpace(candidateRoot))
+                {
+                    continue;
+                }
+
+                string normalizedRoot = NormalizeDirectoryPrefix(candidateRoot);
+                if (normalizedPath.StartsWith(normalizedRoot, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+        }
+        catch
+        {
+        }
+
+        return false;
     }
 
     private static bool IsLegacyManagedProjectLibraryPath(string path)
@@ -131,5 +193,69 @@ internal static class AppStoragePaths
         }
 
         return false;
+    }
+
+    private static IReadOnlyList<RecentProjectEntry> NormalizeRecentProjects(IReadOnlyList<RecentProjectEntry> recentProjects)
+    {
+        List<RecentProjectEntry> normalizedProjects = [];
+        foreach (RecentProjectEntry recentProject in recentProjects)
+        {
+            string? normalizedPath = NormalizeStoredProjectPath(recentProject.Path);
+            if (string.IsNullOrWhiteSpace(normalizedPath))
+            {
+                continue;
+            }
+
+            normalizedProjects.Add(new RecentProjectEntry
+            {
+                Name = recentProject.Name,
+                Path = normalizedPath
+            });
+        }
+
+        return normalizedProjects;
+    }
+
+    private static string? NormalizeStoredProjectPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || IsOneDrivePath(path))
+        {
+            return null;
+        }
+
+        try
+        {
+            return Path.GetFullPath(path);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool RecentProjectsEqual(IReadOnlyList<RecentProjectEntry> left, IReadOnlyList<RecentProjectEntry> right)
+    {
+        if (left.Count != right.Count)
+        {
+            return false;
+        }
+
+        for (int index = 0; index < left.Count; index++)
+        {
+            if (!string.Equals(left[index].Name, right[index].Name, StringComparison.Ordinal)
+                || !string.Equals(left[index].Path, right[index].Path, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string NormalizeDirectoryPrefix(string path)
+    {
+        string normalized = Path.GetFullPath(path);
+        normalized = Path.TrimEndingDirectorySeparator(normalized);
+        return normalized + Path.DirectorySeparatorChar;
     }
 }

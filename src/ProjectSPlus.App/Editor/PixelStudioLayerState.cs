@@ -16,6 +16,10 @@ public sealed class PixelStudioLayerState
 
     public bool IsSharedAcrossFrames { get; set; }
 
+    public bool IsIgnoredByOnionSkin { get; set; }
+
+    public string? LinkedCelId { get; set; }
+
     public float Opacity { get; set; } = 1f;
 
     public required int[] Pixels { get; set; }

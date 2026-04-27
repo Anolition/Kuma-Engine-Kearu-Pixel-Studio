@@ -107,7 +107,7 @@ public static class CrashReporter
             $"No = Open report folder\n" +
             $"Cancel = Close";
 
-        NotificationSoundPlayer.PlayCrash();
+        NotificationSoundPlayer.PlayCrashForCrashReporter();
         int result = MessageBoxW(
             IntPtr.Zero,
             summary,

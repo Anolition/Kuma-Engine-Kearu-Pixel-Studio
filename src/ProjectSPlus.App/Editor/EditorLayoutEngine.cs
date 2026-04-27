@@ -1148,7 +1148,7 @@ public static partial class EditorLayoutEngine
         UiRect timelineHeaderRect = GetPanelHeaderRect(timelineRect);
         UiRect timelineBodyRect = GetPanelBodyRect(timelineRect);
         bool expandedPlaybackPreview = false;
-        float timelineControlsHeight = 82f;
+        float timelineControlsHeight = 112f;
         UiRect timelinePreviewRect = expandedPlaybackPreview
             ? new UiRect(
                 timelineBodyRect.X,
@@ -1393,6 +1393,7 @@ public static partial class EditorLayoutEngine
         UiRect? savedPaletteScrollTrackRect = null;
         UiRect? savedPaletteScrollThumbRect = null;
         UiRect? paletteLibraryRect = null;
+        UiRect? animationClipFieldRect = null;
         UiRect? paletteRenameFieldRect = null;
         UiRect? layerRenameFieldRect = null;
         UiRect? frameDurationFieldRect = null;
@@ -1845,6 +1846,8 @@ public static partial class EditorLayoutEngine
 
         UiRect playbackPreviewRect = timelinePreviewRect;
         List<ActionRect<PixelStudioAction>> timelineButtons = [];
+        float timelineButtonsRightEdge = timelineControlsRect.X;
+        float frameLaneReservedRight = playbackPreviewRect.X - 12f;
         if (timelineVisible)
         {
             float frameDurationFieldWidth = Math.Clamp(Math.Min(timelineHeaderRect.Width * 0.20f, 94f), 84f, 94f);
@@ -1872,7 +1875,19 @@ public static partial class EditorLayoutEngine
                 16));
             timelineButtons.AddRange(CreateButtonRow(
                 timelineControlsRect.X,
-                timelineControlsRect.Y + 48,
+                timelineControlsRect.Y + 38,
+                30,
+                6,
+                [
+                    PixelStudioAction.CreateAnimationClip,
+                    PixelStudioAction.CycleAnimationClip,
+                    PixelStudioAction.DeleteAnimationClip
+                ],
+                54,
+                16));
+            timelineButtons.AddRange(CreateButtonRow(
+                timelineControlsRect.X,
+                timelineControlsRect.Y + 76,
                 30,
                 6,
                 [
@@ -1881,11 +1896,15 @@ public static partial class EditorLayoutEngine
                     PixelStudioAction.AddFrame,
                     PixelStudioAction.DuplicateFrame,
                     PixelStudioAction.DeleteFrame,
-                    PixelStudioAction.ExportGif,
-                    PixelStudioAction.ExportPngSequence
+                    PixelStudioAction.OpenExportMenu
                 ],
                 54,
                 16));
+            timelineButtonsRightEdge = timelineButtons
+                .Where(button => button.Action is not PixelStudioAction.ToggleOnionPrevious and not PixelStudioAction.ToggleOnionNext)
+                .Select(button => button.Rect.X + button.Rect.Width)
+                .DefaultIfEmpty(timelineControlsRect.X)
+                .Max();
 
             if (pixelStudio.ShowOnionSkin)
             {
@@ -1933,6 +1952,7 @@ public static partial class EditorLayoutEngine
                     onionOpacitySliderRect.Value.Y - 3f,
                     10f,
                     Math.Max(onionOpacitySliderRect.Value.Height + 6f, 0f));
+                frameLaneReservedRight = Math.Min(frameLaneReservedRight, compactButtonsX - 12f);
             }
         }
 
@@ -1940,23 +1960,52 @@ public static partial class EditorLayoutEngine
         UiRect? frameScrollTrackRect = null;
         UiRect? frameScrollThumbRect = null;
         List<IndexedRect> frameRows = [];
-        float frameListStartY = timelineControlsRect.Y + timelineControlsRect.Height + 10;
-        if (timelineVisible && !expandedPlaybackPreview && pixelStudio.FrameRenameActive)
-        {
-            frameRenameFieldRect = new UiRect(timelineBodyRect.X, frameListStartY, Math.Max(playbackPreviewRect.X - 18 - timelineBodyRect.X, 120), 30);
-            frameListStartY += 38;
-        }
-
         if (timelineVisible && !expandedPlaybackPreview)
         {
+            float legacyFrameWidth = Math.Max(playbackPreviewRect.X - 18f - timelineBodyRect.X, 120f);
+            float centeredFrameLaneX = Math.Min(timelineButtonsRightEdge + 14f, Math.Max(timelineControlsRect.X, frameLaneReservedRight));
+            float centeredFrameLaneWidth = Math.Max(frameLaneReservedRight - centeredFrameLaneX, 0f);
+            bool useCenteredFrameLane = centeredFrameLaneWidth >= 160f;
+            float frameLaneX = useCenteredFrameLane ? centeredFrameLaneX : timelineBodyRect.X;
+            float frameLaneWidth = useCenteredFrameLane ? centeredFrameLaneWidth : legacyFrameWidth;
+            float frameLaneTop = useCenteredFrameLane
+                ? timelineControlsRect.Y
+                : timelineControlsRect.Y + timelineControlsRect.Height + 10f;
+            float frameLaneBottom = useCenteredFrameLane
+                ? timelineControlsRect.Y + timelineControlsRect.Height
+                : timelineBodyRect.Y + timelineBodyRect.Height;
+            float frameFieldGap = useCenteredFrameLane ? 6f : 8f;
+            float frameRowGap = useCenteredFrameLane ? 6f : 8f;
+            float frameListStartY = frameLaneTop;
+
+            if (pixelStudio.ActiveAnimationClipIndex >= 0
+                && pixelStudio.ActiveAnimationClipIndex < pixelStudio.AnimationClips.Count)
+            {
+                animationClipFieldRect = new UiRect(
+                    frameLaneX,
+                    frameListStartY,
+                    Math.Max(frameLaneWidth, 120f),
+                    28f);
+                frameListStartY += 28f + frameFieldGap;
+            }
+
+            if (pixelStudio.FrameRenameActive)
+            {
+                frameRenameFieldRect = new UiRect(
+                    frameLaneX,
+                    frameListStartY,
+                    Math.Max(frameLaneWidth, 120f),
+                    30f);
+                frameListStartY += 30f + frameFieldGap;
+            }
+
             UiRect frameViewportFrameRect = new(
-                timelineBodyRect.X,
+                frameLaneX,
                 frameListStartY,
-                Math.Max(playbackPreviewRect.X - 18 - timelineBodyRect.X, 120),
-                Math.Max(timelineBodyRect.Y + timelineBodyRect.Height - frameListStartY, 40));
+                Math.Max(frameLaneWidth, 120f),
+                Math.Max(frameLaneBottom - frameListStartY, 36f));
             frameListViewportRect = new(frameViewportFrameRect.X, frameViewportFrameRect.Y, Math.Max(frameViewportFrameRect.Width - 14, 0), frameViewportFrameRect.Height);
             float frameRowHeight = 36;
-            float frameRowGap = 8;
             float frameX = frameListViewportRect.Value.X;
             float framesRightEdge = frameListViewportRect.Value.X + frameListViewportRect.Value.Width;
             List<List<(int FrameIndex, float Width)>> frameRowGroups = [];
@@ -2222,6 +2271,7 @@ public static partial class EditorLayoutEngine
             FrameScrollTrackRect = frameScrollTrackRect,
             FrameScrollThumbRect = frameScrollThumbRect,
             PaletteLibraryRect = paletteLibraryRect,
+            AnimationClipFieldRect = animationClipFieldRect,
             PaletteRenameFieldRect = paletteRenameFieldRect,
             LayerRenameFieldRect = layerRenameFieldRect,
             FrameDurationFieldRect = frameDurationFieldRect,
@@ -2714,6 +2764,7 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.ExportSpriteStrip => "Strip",
             PixelStudioAction.ExportPngSequence => "PNGs",
             PixelStudioAction.ExportGif => "GIF",
+            PixelStudioAction.OpenExportMenu => "Export",
             PixelStudioAction.ToggleOnionSkin => "Onion",
             PixelStudioAction.OpenCanvasResizeDialog => "Custom",
             PixelStudioAction.ResizeCanvas16 => "16px",
@@ -2804,6 +2855,9 @@ public static partial class EditorLayoutEngine
             PixelStudioAction.IncreaseFrameRate => "FPS +",
             PixelStudioAction.SetLoopStart => "Loop In",
             PixelStudioAction.SetLoopEnd => "Loop Out",
+            PixelStudioAction.CreateAnimationClip => "Clip +",
+            PixelStudioAction.CycleAnimationClip => "Clip",
+            PixelStudioAction.DeleteAnimationClip => "Clip -",
             PixelStudioAction.CyclePlaybackLoopMode => "Bounce",
             PixelStudioAction.DecreaseFrameDuration => "Dur -",
             PixelStudioAction.IncreaseFrameDuration => "Dur +",

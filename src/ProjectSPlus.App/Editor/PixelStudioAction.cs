@@ -10,6 +10,7 @@ public enum PixelStudioAction
     ExportSpriteStrip,
     ExportPngSequence,
     ExportGif,
+    OpenExportMenu,
     ToggleNavigatorPanel,
     ToggleAnimationPreviewPanel,
     ToggleOnionSkin,
@@ -103,6 +104,9 @@ public enum PixelStudioAction
     IncreaseFrameRate,
     SetLoopStart,
     SetLoopEnd,
+    CreateAnimationClip,
+    CycleAnimationClip,
+    DeleteAnimationClip,
     CyclePlaybackLoopMode,
     DecreaseFrameDuration,
     IncreaseFrameDuration

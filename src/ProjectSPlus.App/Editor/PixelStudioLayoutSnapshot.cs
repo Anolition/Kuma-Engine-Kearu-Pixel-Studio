@@ -96,6 +96,8 @@ public sealed class PixelStudioLayoutSnapshot
 
     public UiRect? PaletteLibraryRect { get; init; }
 
+    public UiRect? AnimationClipFieldRect { get; init; }
+
     public UiRect? PaletteRenameFieldRect { get; init; }
 
     public UiRect? LayerRenameFieldRect { get; init; }
@@ -229,6 +231,7 @@ public sealed class PixelStudioLayoutSnapshot
             FrameScrollTrackRect = FrameScrollTrackRect,
             FrameScrollThumbRect = FrameScrollThumbRect,
             PaletteLibraryRect = PaletteLibraryRect,
+            AnimationClipFieldRect = AnimationClipFieldRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
             FrameDurationFieldRect = FrameDurationFieldRect,
@@ -327,6 +330,7 @@ public sealed class PixelStudioLayoutSnapshot
             FrameScrollTrackRect = FrameScrollTrackRect,
             FrameScrollThumbRect = FrameScrollThumbRect,
             PaletteLibraryRect = PaletteLibraryRect,
+            AnimationClipFieldRect = AnimationClipFieldRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
             FrameDurationFieldRect = FrameDurationFieldRect,
@@ -422,6 +426,7 @@ public sealed class PixelStudioLayoutSnapshot
             FrameScrollTrackRect = FrameScrollTrackRect,
             FrameScrollThumbRect = FrameScrollThumbRect,
             PaletteLibraryRect = PaletteLibraryRect,
+            AnimationClipFieldRect = AnimationClipFieldRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
             FrameDurationFieldRect = FrameDurationFieldRect,
@@ -517,6 +522,7 @@ public sealed class PixelStudioLayoutSnapshot
             FrameScrollTrackRect = FrameScrollTrackRect,
             FrameScrollThumbRect = FrameScrollThumbRect,
             PaletteLibraryRect = PaletteLibraryRect,
+            AnimationClipFieldRect = AnimationClipFieldRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
             FrameDurationFieldRect = FrameDurationFieldRect,
@@ -618,6 +624,7 @@ public sealed class PixelStudioLayoutSnapshot
             FrameScrollTrackRect = FrameScrollTrackRect,
             FrameScrollThumbRect = FrameScrollThumbRect,
             PaletteLibraryRect = PaletteLibraryRect,
+            AnimationClipFieldRect = AnimationClipFieldRect,
             PaletteRenameFieldRect = PaletteRenameFieldRect,
             LayerRenameFieldRect = LayerRenameFieldRect,
             FrameDurationFieldRect = FrameDurationFieldRect,

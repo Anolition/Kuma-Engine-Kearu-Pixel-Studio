@@ -1100,7 +1100,15 @@ public sealed partial class EditorWindowScene : IWindowScene
         {
             EditorNotificationSoundMode.Windows => "Windows",
             EditorNotificationSoundMode.None => "Off",
-            _ => "Kuma"
+            _ => NotificationSoundPlayer.CustomWarningSoundLabel
+        };
+
+    private string CurrentCrashSoundLabel =>
+        _notificationSoundMode switch
+        {
+            EditorNotificationSoundMode.Windows => "Windows",
+            EditorNotificationSoundMode.None => "Off",
+            _ => NotificationSoundPlayer.CustomCrashSoundLabel
         };
 
     private string CurrentAutosaveLabel => EditorAutosaveOptions.ToLabel(_pixelAutosaveIntervalSeconds);
@@ -1334,7 +1342,7 @@ public sealed partial class EditorWindowScene : IWindowScene
                 break;
             case EditorMenuAction.TestCrashSound:
                 NotificationSoundPlayer.PlayCrash();
-                SyncUiState($"Played {CurrentNotificationSoundLabel} crash sound.");
+                SyncUiState($"Played {CurrentCrashSoundLabel} crash sound.");
                 break;
             case EditorMenuAction.TriggerCrashReporterTest:
                 throw new InvalidOperationException("Intentional crash reporter test triggered from the Help menu.");
@@ -1405,6 +1413,13 @@ public sealed partial class EditorWindowScene : IWindowScene
         }
 
         RecentProjectEntry project = _recentProjects[index];
+        if (!AppStoragePaths.CanStoreUserPath(project.Path))
+        {
+            _recentProjects.RemoveAt(index);
+            SyncUiState("Removed a OneDrive recent project.");
+            return;
+        }
+
         AddRecentProject(project);
         _lastProjectPath = File.Exists(project.Path)
             ? Path.GetDirectoryName(project.Path)
@@ -1418,6 +1433,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     private void AddRecentProject(RecentProjectEntry project)
     {
+        if (!AppStoragePaths.CanStoreUserPath(project.Path))
+        {
+            return;
+        }
+
         _recentProjects.RemoveAll(existing => string.Equals(existing.Path, project.Path, StringComparison.OrdinalIgnoreCase));
         _recentProjects.Insert(0, project);
 
@@ -1622,45 +1642,7 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     private static string ResolveStartupProjectLibraryPath(string? configuredPath)
     {
-        if (string.IsNullOrWhiteSpace(configuredPath) || IsLegacyManagedProjectLibraryPath(configuredPath))
-        {
-            return GetDefaultProjectLibraryPath();
-        }
-
-        return configuredPath;
-    }
-
-    private static bool IsLegacyManagedProjectLibraryPath(string path)
-    {
-        try
-        {
-            string normalized = Path.GetFullPath(path);
-            string documentsPath = Path.GetFullPath(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments));
-            string oneDriveDocumentsPath = Path.GetFullPath(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "OneDrive",
-                "Documents"));
-
-            string[] legacyNames =
-            [
-                "Project S+ Projects",
-                EditorBranding.DefaultProjectLibraryName
-            ];
-
-            foreach (string legacyName in legacyNames)
-            {
-                if (string.Equals(normalized, Path.Combine(documentsPath, legacyName), StringComparison.OrdinalIgnoreCase)
-                    || string.Equals(normalized, Path.Combine(oneDriveDocumentsPath, legacyName), StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-        }
-        catch
-        {
-        }
-
-        return false;
+        return AppStoragePaths.NormalizeProjectLibraryPath(configuredPath);
     }
 
     private static string ResolveAvailableFontFamily(string? preferredFontFamily)
@@ -1851,19 +1833,7 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     private static string NormalizeDirectoryPath(string path)
     {
-        if (string.IsNullOrWhiteSpace(path))
-        {
-            return GetDefaultProjectLibraryPath();
-        }
-
-        try
-        {
-            return Path.GetFullPath(path);
-        }
-        catch
-        {
-            return GetDefaultProjectLibraryPath();
-        }
+        return AppStoragePaths.NormalizeProjectLibraryPath(path);
     }
 
     private static IReadOnlyList<string> GetDirectoryEntries(string path)

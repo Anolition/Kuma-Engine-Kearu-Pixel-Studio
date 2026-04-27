@@ -8,6 +8,7 @@ public sealed partial class EditorWindowScene
         ProjectName,
         ProjectLibraryPath,
         ThemeStudioName,
+        AnimationClipRename,
         PaletteRename,
         LayerRename,
         FrameRename,
@@ -138,6 +139,7 @@ public sealed partial class EditorWindowScene
             EditableTextTarget.ProjectName => _uiState.ProjectForm.ActiveField == EditorTextField.ProjectName,
             EditableTextTarget.ProjectLibraryPath => _uiState.ProjectForm.ActiveField == EditorTextField.ProjectLibraryPath,
             EditableTextTarget.ThemeStudioName => _themeStudioVisible && _themeStudioNameActive,
+            EditableTextTarget.AnimationClipRename => _animationClipRenameActive,
             EditableTextTarget.PaletteRename => _paletteRenameActive,
             EditableTextTarget.LayerRename => _layerRenameActive,
             EditableTextTarget.FrameRename => _frameRenameActive,
@@ -163,6 +165,9 @@ public sealed partial class EditorWindowScene
                 break;
             case EditableTextTarget.ThemeStudioName:
                 DeleteThemeStudioNameText();
+                break;
+            case EditableTextTarget.AnimationClipRename:
+                DeleteAnimationClipRenameText();
                 break;
             case EditableTextTarget.PaletteRename:
                 DeletePaletteRenameText();
@@ -290,6 +295,29 @@ public sealed partial class EditorWindowScene
 
         _paletteRenameBuffer = _paletteRenameBuffer[..^1];
         RefreshPixelStudioView("Editing palette name.");
+    }
+
+    private void DeleteAnimationClipRenameText()
+    {
+        if (ConsumeSelectedText(EditableTextTarget.AnimationClipRename))
+        {
+            if (_animationClipRenameBuffer.Length == 0)
+            {
+                return;
+            }
+
+            _animationClipRenameBuffer = string.Empty;
+            RefreshPixelStudioView("Editing clip name.", rebuildLayout: true);
+            return;
+        }
+
+        if (_animationClipRenameBuffer.Length == 0)
+        {
+            return;
+        }
+
+        _animationClipRenameBuffer = _animationClipRenameBuffer[..^1];
+        RefreshPixelStudioView("Editing clip name.", rebuildLayout: true);
     }
 
     private void DeleteLayerRenameText()

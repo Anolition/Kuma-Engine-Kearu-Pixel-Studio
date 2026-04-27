@@ -16,6 +16,10 @@ public sealed class PixelStudioLayerView
 
     public required bool IsSharedAcrossFrames { get; init; }
 
+    public required bool IsIgnoredByOnionSkin { get; init; }
+
+    public required bool HasLinkedCel { get; init; }
+
     public required float Opacity { get; init; }
 
     public required bool IsActive { get; init; }

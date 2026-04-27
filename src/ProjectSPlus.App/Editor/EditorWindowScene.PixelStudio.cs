@@ -180,6 +180,7 @@ public sealed partial class EditorWindowScene
         DeleteLockedSavedPalette,
         DeleteLockedPaletteSwatch,
         DeleteUsedPaletteSwatch,
+        DeletePaintedFrame,
         ApplyPaletteWithArtworkColors
     }
 
@@ -242,6 +243,7 @@ public sealed partial class EditorWindowScene
     private int? _contextFrameIndex;
     private bool _contextSelectionActive;
     private bool _contextOnionControlsActive;
+    private bool _contextExportMenuActive;
     private PixelStudioToolKind? _contextToolMenuTool;
     private string? _currentPixelDocumentPath;
     private string? _pixelStudioLastSavedSnapshotJson;
@@ -255,6 +257,8 @@ public sealed partial class EditorWindowScene
     private float _toolSettingsDragStartOffsetX;
     private float _toolSettingsDragStartOffsetY;
     private int _strokeAnchorCellIndex = -1;
+    private bool _animationClipRenameActive;
+    private string _animationClipRenameBuffer = string.Empty;
     private bool _frameRenameActive;
     private string _frameRenameBuffer = string.Empty;
     private bool _frameDurationFieldActive;
@@ -366,6 +370,8 @@ public sealed partial class EditorWindowScene
     private int _frameDragInsertIndex = -1;
     private float _frameDragStartMouseX;
     private float _frameDragStartMouseY;
+    private float _frameDragGrabOffsetX;
+    private float _frameDragGrabOffsetY;
     private bool _frameDragMoved;
     private NavigatorResizeCorner _navigatorResizeCorner;
     private float _navigatorResizeStartMouseX;
@@ -522,6 +528,36 @@ public sealed partial class EditorWindowScene
         _pixelStudio.LoopEndFrameIndex = _pixelStudio.LoopRangeEnabled ? end : lastFrameIndex;
     }
 
+    private void NormalizeAnimationClipState()
+    {
+        if (_pixelStudio.Frames.Count == 0)
+        {
+            _pixelStudio.AnimationClips.Clear();
+            _pixelStudio.ActiveAnimationClipIndex = -1;
+            return;
+        }
+
+        int lastFrameIndex = _pixelStudio.Frames.Count - 1;
+        foreach (PixelStudioAnimationClip clip in _pixelStudio.AnimationClips)
+        {
+            clip.Name = string.IsNullOrWhiteSpace(clip.Name) ? "Clip" : clip.Name.Trim();
+            clip.StartFrameIndex = Math.Clamp(clip.StartFrameIndex, 0, lastFrameIndex);
+            clip.EndFrameIndex = Math.Clamp(clip.EndFrameIndex, 0, lastFrameIndex);
+            if (clip.StartFrameIndex > clip.EndFrameIndex)
+            {
+                (clip.StartFrameIndex, clip.EndFrameIndex) = (clip.EndFrameIndex, clip.StartFrameIndex);
+            }
+        }
+
+        if (_pixelStudio.AnimationClips.Count == 0)
+        {
+            _pixelStudio.ActiveAnimationClipIndex = -1;
+            return;
+        }
+
+        _pixelStudio.ActiveAnimationClipIndex = Math.Clamp(_pixelStudio.ActiveAnimationClipIndex, -1, _pixelStudio.AnimationClips.Count - 1);
+    }
+
     private void NormalizeOnionDisplayState()
     {
         if (_pixelStudio.AllowDualOnion)
@@ -577,17 +613,38 @@ public sealed partial class EditorWindowScene
     {
         if (!TryGetLoopRange(out int startFrameIndex, out int endFrameIndex))
         {
-            return Math.Clamp(_pixelStudio.ActiveFrameIndex, 0, Math.Max(_pixelStudio.Frames.Count - 1, 0));
+            int activeFrameIndex = Math.Clamp(_pixelStudio.ActiveFrameIndex, 0, Math.Max(_pixelStudio.Frames.Count - 1, 0));
+            if (_pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse)
+            {
+                return activeFrameIndex >= startFrameIndex && activeFrameIndex <= endFrameIndex
+                    ? activeFrameIndex
+                    : Math.Max(_pixelStudio.Frames.Count - 1, 0);
+            }
+
+            return activeFrameIndex;
         }
 
-        int activeFrameIndex = Math.Clamp(_pixelStudio.ActiveFrameIndex, 0, _pixelStudio.Frames.Count - 1);
-        return activeFrameIndex >= startFrameIndex && activeFrameIndex <= endFrameIndex
-            ? activeFrameIndex
+        int clampedActiveFrameIndex = Math.Clamp(_pixelStudio.ActiveFrameIndex, 0, _pixelStudio.Frames.Count - 1);
+        if (clampedActiveFrameIndex >= startFrameIndex && clampedActiveFrameIndex <= endFrameIndex)
+        {
+            return clampedActiveFrameIndex;
+        }
+
+        return _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse
+            ? endFrameIndex
             : startFrameIndex;
     }
 
     private int GetNextPlaybackFrameIndex(int currentFrameIndex, int playbackStartFrameIndex, int playbackEndFrameIndex)
     {
+        if (_pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse)
+        {
+            _pixelPlaybackDirection = -1;
+            return currentFrameIndex <= playbackStartFrameIndex
+                ? playbackEndFrameIndex
+                : currentFrameIndex - 1;
+        }
+
         if (_pixelStudio.PlaybackLoopMode != PixelStudioPlaybackLoopMode.PingPong || playbackStartFrameIndex >= playbackEndFrameIndex)
         {
             _pixelPlaybackDirection = 1;
@@ -621,7 +678,7 @@ public sealed partial class EditorWindowScene
         if (!_pixelStudio.IsPlaying || _pixelStudio.Frames.Count <= 1)
         {
             _lastPlaybackTick = 0;
-            _pixelPlaybackDirection = 1;
+            _pixelPlaybackDirection = _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse ? -1 : 1;
             return;
         }
 
@@ -635,8 +692,10 @@ public sealed partial class EditorWindowScene
 
         if (_pixelStudio.PreviewFrameIndex < playbackStartFrameIndex || _pixelStudio.PreviewFrameIndex > playbackEndFrameIndex)
         {
-            _pixelStudio.PreviewFrameIndex = playbackStartFrameIndex;
-            _pixelPlaybackDirection = 1;
+            _pixelStudio.PreviewFrameIndex = _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse
+                ? playbackEndFrameIndex
+                : playbackStartFrameIndex;
+            _pixelPlaybackDirection = _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse ? -1 : 1;
         }
 
         long currentTicks = Stopwatch.GetTimestamp();
@@ -744,9 +803,18 @@ public sealed partial class EditorWindowScene
             if (timelineContextButton is not null
                 && timelineContextButton.Action is PixelStudioAction.ToggleOnionSkin
                     or PixelStudioAction.ToggleOnionPrevious
-                    or PixelStudioAction.ToggleOnionNext)
+                    or PixelStudioAction.ToggleOnionNext
+                    or PixelStudioAction.OpenExportMenu)
             {
-                OpenOnionContextMenu(mouseX, mouseY);
+                if (timelineContextButton.Action == PixelStudioAction.OpenExportMenu)
+                {
+                    OpenExportContextMenu(mouseX, mouseY);
+                }
+                else
+                {
+                    OpenOnionContextMenu(mouseX, mouseY);
+                }
+
                 return true;
             }
 
@@ -794,6 +862,12 @@ public sealed partial class EditorWindowScene
             && (layout.FrameDurationFieldRect is null || !layout.FrameDurationFieldRect.Value.Contains(mouseX, mouseY)))
         {
             CommitFrameDurationEdit();
+        }
+
+        if (_animationClipRenameActive
+            && (layout.AnimationClipFieldRect is null || !layout.AnimationClipFieldRect.Value.Contains(mouseX, mouseY)))
+        {
+            CommitAnimationClipRename();
         }
 
         if (layout.ContextMenuRect is not null)
@@ -953,6 +1027,23 @@ public sealed partial class EditorWindowScene
         {
             ClosePixelContextMenu();
             ActivateFrameDurationField();
+            return true;
+        }
+
+        if (layout.AnimationClipFieldRect is not null
+            && layout.AnimationClipFieldRect.Value.Contains(mouseX, mouseY))
+        {
+            ClosePixelContextMenu();
+            if (_animationClipRenameActive)
+            {
+                SelectAllText(EditableTextTarget.AnimationClipRename);
+                RefreshPixelStudioView("Editing clip name.", rebuildLayout: true);
+            }
+            else
+            {
+                StartAnimationClipRename();
+            }
+
             return true;
         }
 
@@ -1158,6 +1249,8 @@ public sealed partial class EditorWindowScene
             _frameDragInsertIndex = _pixelStudio.ActiveFrameIndex;
             _frameDragStartMouseX = mouseX;
             _frameDragStartMouseY = mouseY;
+            _frameDragGrabOffsetX = Math.Clamp(mouseX - frameRow.Rect.X, 0f, frameRow.Rect.Width);
+            _frameDragGrabOffsetY = Math.Clamp(mouseY - frameRow.Rect.Y, 0f, frameRow.Rect.Height);
             _frameDragMoved = false;
             _pixelDragMode = PixelStudioDragMode.ReorderFrame;
             RefreshPixelStudioView($"{EditorBranding.PixelToolName} frame selected: {CurrentPixelFrame.Name}.");
@@ -3195,6 +3288,9 @@ public sealed partial class EditorWindowScene
             case PixelStudioAction.ExportGif:
                 ExportPixelStudioGif();
                 break;
+            case PixelStudioAction.OpenExportMenu:
+                OpenExportContextMenu(_pixelMouseX, _pixelMouseY);
+                break;
             case PixelStudioAction.ToggleNavigatorPanel:
                 _pixelNavigatorVisible = !_pixelNavigatorVisible;
                 RefreshPixelStudioView(_pixelNavigatorVisible ? "Opened navigator preview." : "Hidden navigator preview.", rebuildLayout: true);
@@ -3542,6 +3638,15 @@ public sealed partial class EditorWindowScene
                 break;
             case PixelStudioAction.SetLoopEnd:
                 SetLoopBoundary(setStartBoundary: false);
+                break;
+            case PixelStudioAction.CreateAnimationClip:
+                CreateAnimationClip();
+                break;
+            case PixelStudioAction.CycleAnimationClip:
+                CycleAnimationClip();
+                break;
+            case PixelStudioAction.DeleteAnimationClip:
+                DeleteActiveAnimationClip();
                 break;
             case PixelStudioAction.CyclePlaybackLoopMode:
                 CyclePlaybackLoopMode();
@@ -4251,6 +4356,7 @@ public sealed partial class EditorWindowScene
                     {
                         PixelStudioLayerState layer = frame.Layers[layerIndex];
                         layer.IsSharedAcrossFrames = false;
+                        layer.LinkedCelId = null;
                         layer.Pixels = layer.Pixels.ToArray();
                     }
                 }
@@ -4262,6 +4368,7 @@ public sealed partial class EditorWindowScene
                     {
                         PixelStudioLayerState layer = frame.Layers[layerIndex];
                         layer.IsSharedAcrossFrames = true;
+                        layer.LinkedCelId = null;
                         layer.Pixels = sharedPixels;
                     }
                 }
@@ -4269,6 +4376,84 @@ public sealed partial class EditorWindowScene
                 return true;
             },
             rebuildLayout: false);
+    }
+
+    private void TogglePixelLayerIgnoreInOnionSkin(int layerIndex)
+    {
+        if (layerIndex < 0 || layerIndex >= CurrentPixelFrame.Layers.Count)
+        {
+            return;
+        }
+
+        ApplyPixelStudioChange(CurrentPixelFrame.Layers[layerIndex].IsIgnoredByOnionSkin
+            ? "Layer now appears in onion skin."
+            : "Layer now ignores onion skin.", () =>
+        {
+            bool nextValue = !CurrentPixelFrame.Layers[layerIndex].IsIgnoredByOnionSkin;
+            foreach (PixelStudioFrameState frame in _pixelStudio.Frames)
+            {
+                frame.Layers[layerIndex].IsIgnoredByOnionSkin = nextValue;
+            }
+
+            return true;
+        }, rebuildLayout: false);
+    }
+
+    private void LinkLayerCelToPreviousFrame(int layerIndex)
+    {
+        if (_pixelStudio.ActiveFrameIndex <= 0)
+        {
+            RefreshPixelStudioView("Select a later frame before linking a cel to the previous frame.");
+            return;
+        }
+
+        if (layerIndex < 0 || layerIndex >= CurrentPixelFrame.Layers.Count)
+        {
+            return;
+        }
+
+        PixelStudioLayerState currentLayer = CurrentPixelFrame.Layers[layerIndex];
+        if (currentLayer.IsSharedAcrossFrames)
+        {
+            RefreshPixelStudioView("This layer already shares art across all frames.");
+            return;
+        }
+
+        ApplyPixelStudioChange("Linked the current cel to the previous frame.", () =>
+        {
+            PixelStudioLayerState previousLayer = _pixelStudio.Frames[_pixelStudio.ActiveFrameIndex - 1].Layers[layerIndex];
+            string linkId = string.IsNullOrWhiteSpace(previousLayer.LinkedCelId)
+                ? Guid.NewGuid().ToString("N")
+                : previousLayer.LinkedCelId!;
+            previousLayer.LinkedCelId = linkId;
+            currentLayer.LinkedCelId = linkId;
+            currentLayer.Pixels = previousLayer.Pixels;
+            RelinkSharedLayerReferences(_pixelStudio.Frames);
+            return true;
+        }, rebuildLayout: false);
+    }
+
+    private void UnlinkLayerCel(int layerIndex)
+    {
+        if (layerIndex < 0 || layerIndex >= CurrentPixelFrame.Layers.Count)
+        {
+            return;
+        }
+
+        PixelStudioLayerState currentLayer = CurrentPixelFrame.Layers[layerIndex];
+        if (string.IsNullOrWhiteSpace(currentLayer.LinkedCelId))
+        {
+            RefreshPixelStudioView("This cel is already independent.");
+            return;
+        }
+
+        ApplyPixelStudioChange("Unlinked the current cel.", () =>
+        {
+            currentLayer.LinkedCelId = null;
+            currentLayer.Pixels = currentLayer.Pixels.ToArray();
+            RelinkSharedLayerReferences(_pixelStudio.Frames);
+            return true;
+        }, rebuildLayout: false);
     }
 
     private void AddPixelFrame()
@@ -4289,6 +4474,8 @@ public sealed partial class EditorWindowScene
                         IsLocked = layer.IsLocked,
                         IsAlphaLocked = layer.IsAlphaLocked,
                         IsSharedAcrossFrames = layer.IsSharedAcrossFrames,
+                        IsIgnoredByOnionSkin = layer.IsIgnoredByOnionSkin,
+                        LinkedCelId = null,
                         Opacity = NormalizeLayerOpacity(layer.Opacity),
                         Pixels = layer.IsSharedAcrossFrames
                             ? layer.Pixels
@@ -4299,6 +4486,7 @@ public sealed partial class EditorWindowScene
 
             _pixelStudio.Frames.Add(newFrame);
             ShiftLoopRangeForInsertedFrame(_pixelStudio.Frames.Count - 1);
+            ShiftAnimationClipsForInsertedFrame(_pixelStudio.Frames.Count - 1);
             _pixelStudio.ActiveFrameIndex = _pixelStudio.Frames.Count - 1;
             _pixelStudio.PreviewFrameIndex = _pixelStudio.ActiveFrameIndex;
             return true;
@@ -4333,13 +4521,14 @@ public sealed partial class EditorWindowScene
             _pixelStudio.Frames.Insert(insertIndex, pastedFrame);
             RelinkSharedLayerReferences(_pixelStudio.Frames);
             ShiftLoopRangeForInsertedFrame(insertIndex);
+            ShiftAnimationClipsForInsertedFrame(insertIndex);
             _pixelStudio.ActiveFrameIndex = insertIndex;
             _pixelStudio.PreviewFrameIndex = insertIndex;
             return true;
         });
     }
 
-    private void DeletePixelFrame(int frameIndex)
+    private void DeletePixelFrame(int frameIndex, bool requireWarning = true)
     {
         if (_pixelStudio.Frames.Count <= 1 || frameIndex < 0 || frameIndex >= _pixelStudio.Frames.Count)
         {
@@ -4347,14 +4536,43 @@ public sealed partial class EditorWindowScene
             return;
         }
 
+        if (requireWarning && FrameHasArtwork(_pixelStudio.Frames[frameIndex]))
+        {
+            string frameName = _pixelStudio.Frames[frameIndex].Name;
+            int capturedFrameIndex = frameIndex;
+            OpenPixelWarningDialog(
+                PixelStudioWarningDialogKind.DeletePaintedFrame,
+                "Delete Painted Frame?",
+                $"\"{frameName}\" contains artwork. Deleting it removes that frame from the animation. Continue?",
+                confirmAction: () => DeletePixelFrame(capturedFrameIndex, requireWarning: false));
+            return;
+        }
+
         ApplyPixelStudioChange("Deleted frame.", () =>
         {
             _pixelStudio.Frames.RemoveAt(frameIndex);
             ShiftLoopRangeForDeletedFrame(frameIndex);
+            ShiftAnimationClipsForDeletedFrame(frameIndex);
             _pixelStudio.ActiveFrameIndex = Math.Clamp(_pixelStudio.ActiveFrameIndex, 0, _pixelStudio.Frames.Count - 1);
             _pixelStudio.PreviewFrameIndex = Math.Clamp(_pixelStudio.PreviewFrameIndex, 0, _pixelStudio.Frames.Count - 1);
             return true;
         });
+    }
+
+    private static bool FrameHasArtwork(PixelStudioFrameState frame)
+    {
+        foreach (PixelStudioLayerState layer in frame.Layers)
+        {
+            foreach (int pixel in layer.Pixels)
+            {
+                if (pixel != TransparentPixelValue)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private void DuplicatePixelFrame(int frameIndex)
@@ -4372,6 +4590,7 @@ public sealed partial class EditorWindowScene
             _pixelStudio.Frames.Insert(frameIndex + 1, duplicate);
             RelinkSharedLayerReferences(_pixelStudio.Frames);
             ShiftLoopRangeForInsertedFrame(frameIndex + 1);
+            ShiftAnimationClipsForInsertedFrame(frameIndex + 1);
             _pixelStudio.ActiveFrameIndex = frameIndex + 1;
             _pixelStudio.PreviewFrameIndex = _pixelStudio.ActiveFrameIndex;
             return true;
@@ -4410,10 +4629,144 @@ public sealed partial class EditorWindowScene
             _pixelStudio.Frames.RemoveAt(sourceIndex);
             _pixelStudio.Frames.Insert(targetIndex, frame);
             ShiftLoopRangeForMovedFrame(sourceIndex, targetIndex);
+            ShiftAnimationClipsForMovedFrame(sourceIndex, targetIndex);
             _pixelStudio.ActiveFrameIndex = targetIndex;
             _pixelStudio.PreviewFrameIndex = targetIndex;
             return true;
         });
+    }
+
+    private void CreateAnimationClip()
+    {
+        int startFrameIndex;
+        int endFrameIndex;
+        if (!TryGetLoopRange(out startFrameIndex, out endFrameIndex))
+        {
+            startFrameIndex = Math.Clamp(_pixelStudio.ActiveFrameIndex, 0, Math.Max(_pixelStudio.Frames.Count - 1, 0));
+            endFrameIndex = startFrameIndex;
+        }
+
+        PixelStudioAnimationClip clip = new()
+        {
+            Name = BuildUniqueAnimationClipName("Clip"),
+            StartFrameIndex = startFrameIndex,
+            EndFrameIndex = endFrameIndex,
+            PlaybackLoopMode = _pixelStudio.PlaybackLoopMode
+        };
+
+        ApplyPixelStudioChange($"Created clip {clip.Name}.", () =>
+        {
+            _pixelStudio.AnimationClips.Add(clip);
+            _pixelStudio.ActiveAnimationClipIndex = _pixelStudio.AnimationClips.Count - 1;
+            ApplyAnimationClipToPlayback(_pixelStudio.ActiveAnimationClipIndex, refreshStatus: false);
+            return true;
+        }, rebuildLayout: false);
+        StartAnimationClipRename();
+    }
+
+    private void CycleAnimationClip()
+    {
+        if (_pixelStudio.AnimationClips.Count == 0)
+        {
+            RefreshPixelStudioView("No clips yet. Use Clip + to create one from the current loop range.");
+            return;
+        }
+
+        CancelAnimationClipRename(silent: true);
+        int nextIndex = _pixelStudio.ActiveAnimationClipIndex < 0
+            ? 0
+            : _pixelStudio.ActiveAnimationClipIndex + 1 >= _pixelStudio.AnimationClips.Count
+                ? -1
+                : _pixelStudio.ActiveAnimationClipIndex + 1;
+        ApplyAnimationClipToPlayback(nextIndex, refreshStatus: true);
+    }
+
+    private void DeleteActiveAnimationClip()
+    {
+        if (_pixelStudio.ActiveAnimationClipIndex < 0 || _pixelStudio.ActiveAnimationClipIndex >= _pixelStudio.AnimationClips.Count)
+        {
+            RefreshPixelStudioView("No active clip to delete.");
+            return;
+        }
+
+        string clipName = _pixelStudio.AnimationClips[_pixelStudio.ActiveAnimationClipIndex].Name;
+        int deletedIndex = _pixelStudio.ActiveAnimationClipIndex;
+        CancelAnimationClipRename(silent: true);
+        ApplyPixelStudioChange($"Deleted clip {clipName}.", () =>
+        {
+            _pixelStudio.AnimationClips.RemoveAt(deletedIndex);
+            if (_pixelStudio.AnimationClips.Count == 0)
+            {
+                ApplyAnimationClipToPlayback(-1, refreshStatus: false);
+            }
+            else
+            {
+                _pixelStudio.ActiveAnimationClipIndex = Math.Clamp(deletedIndex, 0, _pixelStudio.AnimationClips.Count - 1);
+                ApplyAnimationClipToPlayback(_pixelStudio.ActiveAnimationClipIndex, refreshStatus: false);
+            }
+
+            return true;
+        }, rebuildLayout: false);
+    }
+
+    private void StartAnimationClipRename()
+    {
+        if (_pixelStudio.ActiveAnimationClipIndex < 0 || _pixelStudio.ActiveAnimationClipIndex >= _pixelStudio.AnimationClips.Count)
+        {
+            RefreshPixelStudioView("Select a clip to rename.", rebuildLayout: true);
+            return;
+        }
+
+        ClosePixelContextMenu();
+        _animationClipRenameActive = true;
+        _animationClipRenameBuffer = _pixelStudio.AnimationClips[_pixelStudio.ActiveAnimationClipIndex].Name;
+        SelectAllText(EditableTextTarget.AnimationClipRename);
+        RefreshPixelStudioView($"Renaming {_animationClipRenameBuffer}.", rebuildLayout: true);
+    }
+
+    private void CommitAnimationClipRename()
+    {
+        if (!_animationClipRenameActive)
+        {
+            return;
+        }
+
+        if (_pixelStudio.ActiveAnimationClipIndex < 0 || _pixelStudio.ActiveAnimationClipIndex >= _pixelStudio.AnimationClips.Count)
+        {
+            CancelAnimationClipRename(silent: true);
+            RefreshPixelStudioView("No active clip selected.", rebuildLayout: true);
+            return;
+        }
+
+        int clipIndex = _pixelStudio.ActiveAnimationClipIndex;
+        string name = BuildUniqueAnimationClipName(_animationClipRenameBuffer, clipIndex);
+        ApplyPixelStudioChange($"Renamed clip to {name}.", () =>
+        {
+            _pixelStudio.AnimationClips[clipIndex].Name = name;
+            return true;
+        }, rebuildLayout: true);
+        _animationClipRenameActive = false;
+        _animationClipRenameBuffer = name;
+        ClearSelectedText(EditableTextTarget.AnimationClipRename);
+    }
+
+    private void CancelAnimationClipRename(bool silent = false)
+    {
+        if (!_animationClipRenameActive && string.IsNullOrEmpty(_animationClipRenameBuffer))
+        {
+            return;
+        }
+
+        _animationClipRenameActive = false;
+        _animationClipRenameBuffer = _pixelStudio.ActiveAnimationClipIndex >= 0
+            && _pixelStudio.ActiveAnimationClipIndex < _pixelStudio.AnimationClips.Count
+            ? _pixelStudio.AnimationClips[_pixelStudio.ActiveAnimationClipIndex].Name
+            : string.Empty;
+        ClearSelectedText(EditableTextTarget.AnimationClipRename);
+        if (!silent)
+        {
+            RefreshPixelStudioView("Clip rename cancelled.", rebuildLayout: true);
+        }
     }
 
     private void TogglePixelPlayback()
@@ -4427,24 +4780,31 @@ public sealed partial class EditorWindowScene
         _pixelStudio.IsPlaying = !_pixelStudio.IsPlaying;
         _pixelStudio.PreviewFrameIndex = GetPlaybackStartFrameIndex();
         _lastPlaybackTick = 0;
-        _pixelPlaybackDirection = 1;
+        _pixelPlaybackDirection = _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse ? -1 : 1;
         RefreshPixelStudioView(_pixelStudio.IsPlaying ? "Animation preview playing." : "Animation preview paused.");
     }
 
     private void CyclePlaybackLoopMode()
     {
-        PixelStudioPlaybackLoopMode nextMode = _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Forward
-            ? PixelStudioPlaybackLoopMode.PingPong
-            : PixelStudioPlaybackLoopMode.Forward;
+        PixelStudioPlaybackLoopMode nextMode = _pixelStudio.PlaybackLoopMode switch
+        {
+            PixelStudioPlaybackLoopMode.Forward => PixelStudioPlaybackLoopMode.Reverse,
+            PixelStudioPlaybackLoopMode.Reverse => PixelStudioPlaybackLoopMode.PingPong,
+            _ => PixelStudioPlaybackLoopMode.Forward
+        };
 
         ApplyPixelStudioChange(
-            nextMode == PixelStudioPlaybackLoopMode.PingPong
-                ? "Playback mode set to Bounce."
-                : "Playback mode set to Forward.",
+            nextMode switch
+            {
+                PixelStudioPlaybackLoopMode.Reverse => "Playback mode set to Reverse.",
+                PixelStudioPlaybackLoopMode.PingPong => "Playback mode set to Bounce.",
+                _ => "Playback mode set to Forward."
+            },
             () =>
             {
                 _pixelStudio.PlaybackLoopMode = nextMode;
-                _pixelPlaybackDirection = 1;
+                _pixelPlaybackDirection = nextMode == PixelStudioPlaybackLoopMode.Reverse ? -1 : 1;
+                UpdateActiveAnimationClipFromLoopState();
                 if (_pixelStudio.IsPlaying)
                 {
                     _pixelStudio.PreviewFrameIndex = GetPlaybackStartFrameIndex();
@@ -4593,11 +4953,12 @@ public sealed partial class EditorWindowScene
             _pixelStudio.LoopStartFrameIndex = nextStart;
             _pixelStudio.LoopEndFrameIndex = nextEnd;
             NormalizeLoopRangeState();
+            UpdateActiveAnimationClipFromLoopState();
             if (_pixelStudio.IsPlaying)
             {
                 _pixelStudio.PreviewFrameIndex = GetPlaybackStartFrameIndex();
                 _lastPlaybackTick = 0;
-                _pixelPlaybackDirection = 1;
+                _pixelPlaybackDirection = _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse ? -1 : 1;
             }
 
             return true;
@@ -4672,6 +5033,65 @@ public sealed partial class EditorWindowScene
         NormalizeLoopRangeState();
     }
 
+    private void ShiftAnimationClipsForInsertedFrame(int insertIndex)
+    {
+        if (_pixelStudio.AnimationClips.Count == 0 || _pixelStudio.Frames.Count == 0)
+        {
+            _pixelStudio.ActiveAnimationClipIndex = _pixelStudio.AnimationClips.Count == 0 ? -1 : _pixelStudio.ActiveAnimationClipIndex;
+            return;
+        }
+
+        foreach (PixelStudioAnimationClip clip in _pixelStudio.AnimationClips)
+        {
+            if (insertIndex <= clip.StartFrameIndex)
+            {
+                clip.StartFrameIndex++;
+            }
+
+            if (insertIndex <= clip.EndFrameIndex)
+            {
+                clip.EndFrameIndex++;
+            }
+        }
+
+        NormalizeAnimationClipState();
+    }
+
+    private void ShiftAnimationClipsForDeletedFrame(int deletedIndex)
+    {
+        if (_pixelStudio.AnimationClips.Count == 0)
+        {
+            _pixelStudio.ActiveAnimationClipIndex = -1;
+            return;
+        }
+
+        int lastFrameIndex = Math.Max(_pixelStudio.Frames.Count - 1, 0);
+        foreach (PixelStudioAnimationClip clip in _pixelStudio.AnimationClips)
+        {
+            clip.StartFrameIndex = RemapLoopIndexForDelete(clip.StartFrameIndex, deletedIndex, lastFrameIndex);
+            clip.EndFrameIndex = RemapLoopIndexForDelete(clip.EndFrameIndex, deletedIndex, lastFrameIndex);
+        }
+
+        NormalizeAnimationClipState();
+    }
+
+    private void ShiftAnimationClipsForMovedFrame(int sourceIndex, int targetIndex)
+    {
+        if (_pixelStudio.AnimationClips.Count == 0)
+        {
+            _pixelStudio.ActiveAnimationClipIndex = -1;
+            return;
+        }
+
+        foreach (PixelStudioAnimationClip clip in _pixelStudio.AnimationClips)
+        {
+            clip.StartFrameIndex = RemapLoopIndexForMove(clip.StartFrameIndex, sourceIndex, targetIndex);
+            clip.EndFrameIndex = RemapLoopIndexForMove(clip.EndFrameIndex, sourceIndex, targetIndex);
+        }
+
+        NormalizeAnimationClipState();
+    }
+
     private static int RemapLoopIndexForDelete(int index, int deletedIndex, int lastFrameIndex)
     {
         if (lastFrameIndex < 0)
@@ -4722,7 +5142,7 @@ public sealed partial class EditorWindowScene
         _pixelStudio.IsPlaying = false;
         _pixelStudio.PreviewFrameIndex = _pixelStudio.ActiveFrameIndex;
         _lastPlaybackTick = 0;
-        _pixelPlaybackDirection = 1;
+        _pixelPlaybackDirection = _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse ? -1 : 1;
     }
 
     private void TogglePixelToolsCollapse()
@@ -5698,10 +6118,10 @@ public sealed partial class EditorWindowScene
     private void RestorePixelStudioRecovery(PixelStudioRecoverySnapshot snapshot)
     {
         ReplacePixelStudioDocument(CreatePixelStudioState(snapshot.Document));
-        _currentPixelDocumentPath = string.IsNullOrWhiteSpace(snapshot.DocumentPath)
+        _currentPixelDocumentPath = string.IsNullOrWhiteSpace(snapshot.DocumentPath) || AppStoragePaths.IsOneDrivePath(snapshot.DocumentPath)
             ? null
             : snapshot.DocumentPath;
-        if (!string.IsNullOrWhiteSpace(snapshot.ProjectPath))
+        if (!string.IsNullOrWhiteSpace(snapshot.ProjectPath) && !AppStoragePaths.IsOneDrivePath(snapshot.ProjectPath))
         {
             _lastProjectPath = snapshot.ProjectPath;
         }
@@ -6245,7 +6665,7 @@ public sealed partial class EditorWindowScene
         bool sharedLayerAffected = CurrentPixelFrame.Layers.Count > 0
             && _pixelStudio.ActiveLayerIndex >= 0
             && _pixelStudio.ActiveLayerIndex < CurrentPixelFrame.Layers.Count
-            && CurrentPixelFrame.Layers[_pixelStudio.ActiveLayerIndex].IsSharedAcrossFrames;
+            && LayerSharesPixelsAcrossFrames(CurrentPixelFrame.Layers[_pixelStudio.ActiveLayerIndex]);
 
         bool canPatchCurrent =
             dirtyPixelIndices is not null &&
@@ -6406,12 +6826,15 @@ public sealed partial class EditorWindowScene
         }
     }
 
-    private ThemeColor? ComposeVisiblePixel(PixelStudioFrameState frame, int pixelIndex)
+    private ThemeColor? ComposeVisiblePixel(PixelStudioFrameState frame, int pixelIndex, bool includeOnionIgnoredLayers = true)
     {
         ThemeColor? resolvedColor = null;
         foreach (PixelStudioLayerState layer in frame.Layers)
         {
-            if (!layer.IsVisible || pixelIndex < 0 || pixelIndex >= layer.Pixels.Length)
+            if (!layer.IsVisible
+                || (!includeOnionIgnoredLayers && layer.IsIgnoredByOnionSkin)
+                || pixelIndex < 0
+                || pixelIndex >= layer.Pixels.Length)
             {
                 continue;
             }
@@ -7777,6 +8200,11 @@ public sealed partial class EditorWindowScene
             LoopStartFrameIndex = loopStartFrameIndex,
             LoopEndFrameIndex = loopEndFrameIndex,
             PlaybackLoopMode = _pixelStudio.PlaybackLoopMode,
+            ActiveAnimationClipIndex = _pixelStudio.ActiveAnimationClipIndex,
+            ActiveAnimationClipLabel = BuildActiveAnimationClipLabel(),
+            AnimationClips = _pixelStudio.AnimationClips.Select(CloneAnimationClip).ToList(),
+            AnimationClipRenameActive = _animationClipRenameActive,
+            AnimationClipRenameSelected = _animationClipRenameActive && IsTextSelected(EditableTextTarget.AnimationClipRename),
             CanUndo = _pixelUndoStack.Count > 0,
             CanRedo = _pixelRedoStack.Count > 0,
             ActiveTool = _pixelStudio.ActiveTool,
@@ -7801,6 +8229,7 @@ public sealed partial class EditorWindowScene
             ColorPickerMode = _pixelColorPickerMode,
             PaletteLibraryVisible = _paletteLibraryVisible,
             PalettePromptVisible = _palettePromptVisible,
+            AnimationClipRenameBuffer = _animationClipRenameBuffer,
             PaletteRenameActive = _paletteRenameActive,
             PaletteRenameSelected = _paletteRenameActive && IsTextSelected(EditableTextTarget.PaletteRename),
             LayerRenameActive = _layerRenameActive,
@@ -7914,6 +8343,10 @@ public sealed partial class EditorWindowScene
             FrameReorderActive = _pixelDragMode == PixelStudioDragMode.ReorderFrame && _frameDragMoved,
             FrameReorderSourceIndex = _frameDragSourceIndex,
             FrameReorderInsertIndex = _frameDragInsertIndex,
+            FrameReorderPreviewX = _pixelMouseX,
+            FrameReorderPreviewY = _pixelMouseY,
+            FrameReorderPreviewGrabOffsetX = _frameDragGrabOffsetX,
+            FrameReorderPreviewGrabOffsetY = _frameDragGrabOffsetY,
             PaletteReorderActive = _pixelDragMode == PixelStudioDragMode.ReorderPaletteSwatch && _paletteSwatchDragMoved,
             PaletteReorderSourceIndex = _paletteSwatchDragSourceIndex,
             PaletteReorderTargetIndex = _paletteSwatchDragTargetIndex,
@@ -7946,6 +8379,8 @@ public sealed partial class EditorWindowScene
                     IsLocked = layer.IsLocked,
                     IsAlphaLocked = layer.IsAlphaLocked,
                     IsSharedAcrossFrames = layer.IsSharedAcrossFrames,
+                    IsIgnoredByOnionSkin = layer.IsIgnoredByOnionSkin,
+                    HasLinkedCel = !string.IsNullOrWhiteSpace(layer.LinkedCelId),
                     Opacity = NormalizeLayerOpacity(layer.Opacity),
                     IsActive = index == _pixelStudio.ActiveLayerIndex
                 })
@@ -8448,7 +8883,7 @@ public sealed partial class EditorWindowScene
             }
         }
 
-        if (!_paletteRenameActive && !_layerRenameActive && !_frameRenameActive)
+        if (!_animationClipRenameActive && !_paletteRenameActive && !_layerRenameActive && !_frameRenameActive)
         {
             if (_selectionTransformPreviewVisible)
             {
@@ -8484,7 +8919,11 @@ public sealed partial class EditorWindowScene
         switch (key)
         {
             case Key.Backspace:
-                if (_paletteRenameActive)
+                if (_animationClipRenameActive)
+                {
+                    HandleTextBackspace(EditableTextTarget.AnimationClipRename);
+                }
+                else if (_paletteRenameActive)
                 {
                     HandleTextBackspace(EditableTextTarget.PaletteRename);
                 }
@@ -8499,7 +8938,11 @@ public sealed partial class EditorWindowScene
 
                 return true;
             case Key.Enter:
-                if (_paletteRenameActive)
+                if (_animationClipRenameActive)
+                {
+                    CommitAnimationClipRename();
+                }
+                else if (_paletteRenameActive)
                 {
                     CommitPaletteRename();
                 }
@@ -8513,7 +8956,11 @@ public sealed partial class EditorWindowScene
                 }
                 return true;
             case Key.Escape:
-                if (_paletteRenameActive)
+                if (_animationClipRenameActive)
+                {
+                    CancelAnimationClipRename();
+                }
+                else if (_paletteRenameActive)
                 {
                     CancelPaletteRename();
                 }
@@ -8690,12 +9137,22 @@ public sealed partial class EditorWindowScene
             return true;
         }
 
-        if ((!_paletteRenameActive && !_layerRenameActive && !_frameRenameActive) || char.IsControl(character))
+        if ((!_animationClipRenameActive && !_paletteRenameActive && !_layerRenameActive && !_frameRenameActive) || char.IsControl(character))
         {
             return false;
         }
 
-        if (_paletteRenameActive)
+        if (_animationClipRenameActive)
+        {
+            if (ConsumeSelectedText(EditableTextTarget.AnimationClipRename))
+            {
+                _animationClipRenameBuffer = string.Empty;
+            }
+
+            _animationClipRenameBuffer += character;
+            RefreshPixelStudioView("Editing clip name.", rebuildLayout: true);
+        }
+        else if (_paletteRenameActive)
         {
             if (ConsumeSelectedText(EditableTextTarget.PaletteRename))
             {
@@ -8705,8 +9162,7 @@ public sealed partial class EditorWindowScene
             _paletteRenameBuffer += character;
             RefreshPixelStudioView("Editing palette name.");
         }
-        else
-        if (_frameRenameActive)
+        else if (_frameRenameActive)
         {
             if (ConsumeSelectedText(EditableTextTarget.FrameRename))
             {
@@ -8753,6 +9209,17 @@ public sealed partial class EditorWindowScene
                 new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetOnionModePreviousOnly, Label = "Previous Only" },
                 new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetOnionModeNextOnly, Label = "Next Only" },
                 new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.SetOnionModeBoth, Label = "Show Both" }
+            ];
+        }
+
+        if (_contextExportMenuActive)
+        {
+            return
+            [
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.ExportCurrentFramePng, Label = "Art PNG" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.ExportSpriteStripPng, Label = "Strip PNG" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.ExportPngSequence, Label = "PNG Sequence" },
+                new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.ExportGif, Label = "GIF" }
             ];
         }
 
@@ -8922,12 +9389,34 @@ public sealed partial class EditorWindowScene
                 },
                 new PixelStudioContextMenuItemView
                 {
+                    Action = PixelStudioContextMenuAction.ToggleLayerIgnoreInOnionSkin,
+                    Label = layer.IsIgnoredByOnionSkin ? "Show In Onion Skin" : "Ignore In Onion Skin"
+                },
+                new PixelStudioContextMenuItemView
+                {
                     Action = PixelStudioContextMenuAction.ToggleLayerAlphaLock,
                     Label = layer.IsAlphaLocked ? "Disable Alpha Lock" : "Enable Alpha Lock"
                 },
                 new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.ToggleLayerLock, Label = layer.IsLocked ? "Unlock Layer" : "Lock Layer" },
                 new PixelStudioContextMenuItemView { Action = PixelStudioContextMenuAction.DeleteLayer, Label = "Delete Layer", IsDestructive = true }
             ]);
+
+            if (!string.IsNullOrWhiteSpace(layer.LinkedCelId))
+            {
+                items.Insert(items.Count - 3, new PixelStudioContextMenuItemView
+                {
+                    Action = PixelStudioContextMenuAction.UnlinkLayerCel,
+                    Label = "Unlink Cel"
+                });
+            }
+            else if (_pixelStudio.ActiveFrameIndex > 0)
+            {
+                items.Insert(items.Count - 3, new PixelStudioContextMenuItemView
+                {
+                    Action = PixelStudioContextMenuAction.LinkLayerCelToPreviousFrame,
+                    Label = "Link Cel To Previous Frame"
+                });
+            }
 
             return items;
         }
@@ -8975,6 +9464,7 @@ public sealed partial class EditorWindowScene
         _contextFrameIndex = null;
         _contextSelectionActive = false;
         _contextOnionControlsActive = false;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
@@ -8996,6 +9486,7 @@ public sealed partial class EditorWindowScene
         _contextFrameIndex = null;
         _contextSelectionActive = false;
         _contextOnionControlsActive = false;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
@@ -9013,6 +9504,7 @@ public sealed partial class EditorWindowScene
         _contextFrameIndex = null;
         _contextSelectionActive = false;
         _contextOnionControlsActive = false;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
@@ -9031,6 +9523,7 @@ public sealed partial class EditorWindowScene
         _contextFrameIndex = null;
         _contextSelectionActive = false;
         _contextOnionControlsActive = false;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
@@ -9049,6 +9542,7 @@ public sealed partial class EditorWindowScene
         _contextPaletteSwatchIndex = null;
         _contextSelectionActive = false;
         _contextOnionControlsActive = false;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
@@ -9066,6 +9560,7 @@ public sealed partial class EditorWindowScene
         _contextPaletteSwatchIndex = null;
         _contextSelectionActive = true;
         _contextOnionControlsActive = false;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
@@ -9083,6 +9578,7 @@ public sealed partial class EditorWindowScene
         _contextPaletteSwatchIndex = null;
         _contextSelectionActive = false;
         _contextOnionControlsActive = false;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = null;
         _contextClipboardActive = true;
         _pixelContextMenuVisible = true;
@@ -9100,6 +9596,7 @@ public sealed partial class EditorWindowScene
         _contextPaletteSwatchIndex = null;
         _contextSelectionActive = false;
         _contextOnionControlsActive = false;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = tool;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
@@ -9118,12 +9615,31 @@ public sealed partial class EditorWindowScene
         _contextPaletteSwatchIndex = null;
         _contextSelectionActive = false;
         _contextOnionControlsActive = true;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = null;
         _contextClipboardActive = false;
         _pixelContextMenuVisible = true;
         _pixelContextMenuX = x;
         _pixelContextMenuY = y;
         RefreshPixelStudioView("Opened onion display options.", rebuildLayout: true);
+    }
+
+    private void OpenExportContextMenu(float x, float y)
+    {
+        _contextFrameIndex = null;
+        _contextLayerIndex = null;
+        _contextLayerGroupId = null;
+        _contextPaletteIndex = null;
+        _contextPaletteSwatchIndex = null;
+        _contextSelectionActive = false;
+        _contextOnionControlsActive = false;
+        _contextExportMenuActive = true;
+        _contextToolMenuTool = null;
+        _contextClipboardActive = false;
+        _pixelContextMenuVisible = true;
+        _pixelContextMenuX = x;
+        _pixelContextMenuY = y;
+        RefreshPixelStudioView("Opened export options.", rebuildLayout: true);
     }
 
     private void ClosePixelContextMenu()
@@ -9136,6 +9652,7 @@ public sealed partial class EditorWindowScene
         _contextFrameIndex = null;
         _contextSelectionActive = false;
         _contextOnionControlsActive = false;
+        _contextExportMenuActive = false;
         _contextToolMenuTool = null;
         _contextClipboardActive = false;
     }
@@ -9217,6 +9734,22 @@ public sealed partial class EditorWindowScene
                 ClosePixelContextMenu();
                 _pixelStudio.ShowOnionSkin = true;
                 SetOnionDisplayMode(showPrevious: true, showNext: true, allowDual: true, "Onion skin set to show both previous and next frames.");
+                break;
+            case PixelStudioContextMenuAction.ExportCurrentFramePng:
+                ClosePixelContextMenu();
+                ExportPixelStudioPng();
+                break;
+            case PixelStudioContextMenuAction.ExportSpriteStripPng:
+                ClosePixelContextMenu();
+                ExportPixelStudioSpriteStrip();
+                break;
+            case PixelStudioContextMenuAction.ExportPngSequence:
+                ClosePixelContextMenu();
+                ExportPixelStudioPngSequence();
+                break;
+            case PixelStudioContextMenuAction.ExportGif:
+                ClosePixelContextMenu();
+                ExportPixelStudioGif();
                 break;
             case PixelStudioContextMenuAction.SetRectangleModeOutline:
                 SetRectangleRenderMode(PixelStudioShapeRenderMode.Outline);
@@ -9415,6 +9948,24 @@ public sealed partial class EditorWindowScene
                 if (_contextLayerIndex is not null)
                 {
                     TogglePixelLayerSharedAcrossFrames(Math.Clamp(_contextLayerIndex.Value, 0, CurrentPixelFrame.Layers.Count - 1));
+                }
+                break;
+            case PixelStudioContextMenuAction.ToggleLayerIgnoreInOnionSkin:
+                if (_contextLayerIndex is not null)
+                {
+                    TogglePixelLayerIgnoreInOnionSkin(Math.Clamp(_contextLayerIndex.Value, 0, CurrentPixelFrame.Layers.Count - 1));
+                }
+                break;
+            case PixelStudioContextMenuAction.LinkLayerCelToPreviousFrame:
+                if (_contextLayerIndex is not null)
+                {
+                    LinkLayerCelToPreviousFrame(Math.Clamp(_contextLayerIndex.Value, 0, CurrentPixelFrame.Layers.Count - 1));
+                }
+                break;
+            case PixelStudioContextMenuAction.UnlinkLayerCel:
+                if (_contextLayerIndex is not null)
+                {
+                    UnlinkLayerCel(Math.Clamp(_contextLayerIndex.Value, 0, CurrentPixelFrame.Layers.Count - 1));
                 }
                 break;
             case PixelStudioContextMenuAction.ToggleLayerAlphaLock:
@@ -9853,6 +10404,12 @@ public sealed partial class EditorWindowScene
                 PixelStudioMirrorMode.Both => "Mirror HV",
                 _ => "Mirror"
             },
+            PixelStudioAction.CyclePlaybackLoopMode => _pixelStudio.PlaybackLoopMode switch
+            {
+                PixelStudioPlaybackLoopMode.Reverse => "Rev",
+                PixelStudioPlaybackLoopMode.PingPong => "Bounce",
+                _ => "Fwd"
+            },
             _ => GetPixelStudioActionLabel(action)
         };
     }
@@ -9958,7 +10515,15 @@ public sealed partial class EditorWindowScene
             PixelStudioAction.IncreaseFrameRate => "FPS +",
             PixelStudioAction.SetLoopStart => "Loop In",
             PixelStudioAction.SetLoopEnd => "Loop Out",
-            PixelStudioAction.CyclePlaybackLoopMode => _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.PingPong ? "Bounce" : "Fwd",
+            PixelStudioAction.CreateAnimationClip => "Clip +",
+            PixelStudioAction.CycleAnimationClip => "Clip",
+            PixelStudioAction.DeleteAnimationClip => "Clip -",
+            PixelStudioAction.CyclePlaybackLoopMode => _pixelStudio.PlaybackLoopMode switch
+            {
+                PixelStudioPlaybackLoopMode.Reverse => "Rev",
+                PixelStudioPlaybackLoopMode.PingPong => "Bounce",
+                _ => "Fwd"
+            },
             PixelStudioAction.DecreaseFrameDuration => "Dur -",
             PixelStudioAction.IncreaseFrameDuration => "Dur +",
             _ => action.ToString()
@@ -10013,7 +10578,10 @@ public sealed partial class EditorWindowScene
             PixelStudioAction.IncreaseFrameRate => "Raise the global animation FPS and update frame timing.",
             PixelStudioAction.SetLoopStart => "Use the active frame as the point where loop playback begins. Click it again on the same frame to clear that start boundary.",
             PixelStudioAction.SetLoopEnd => "Use the active frame as the point where loop playback jumps back. Click it again on the same frame to clear that end boundary.",
-            PixelStudioAction.CyclePlaybackLoopMode => "Switch between Forward looping and Bounce (ping-pong) playback for the current frame range.",
+            PixelStudioAction.CreateAnimationClip => "Create a reusable animation clip from the current loop range. If no loop range is active, Kuma starts with the current frame.",
+            PixelStudioAction.CycleAnimationClip => "Cycle through saved animation clips and apply the selected clip's frame range and playback mode.",
+            PixelStudioAction.DeleteAnimationClip => "Delete the currently active animation clip.",
+            PixelStudioAction.CyclePlaybackLoopMode => "Switch between Forward, Reverse, and Bounce playback for the current frame range or active clip.",
             PixelStudioAction.AddFrame => "Add a new frame after the current one.",
             PixelStudioAction.DuplicateFrame => "Duplicate the active frame.",
             PixelStudioAction.CopyFrame => "Copy the active frame to the frame clipboard.",
@@ -10658,6 +11226,10 @@ public sealed partial class EditorWindowScene
             || Path.GetExtension(exportPath).Equals(".json", StringComparison.OrdinalIgnoreCase)
             ? exportPath
             : $"{exportPath}.kpal";
+        if (RejectOneDriveOutputPath(outputPath))
+        {
+            return;
+        }
 
         try
         {
@@ -11565,13 +12137,13 @@ public sealed partial class EditorWindowScene
             rebuildLayout: true);
     }
 
-    private List<ThemeColor?> ComposeVisiblePixels(PixelStudioFrameState frame)
+    private List<ThemeColor?> ComposeVisiblePixels(PixelStudioFrameState frame, bool includeOnionIgnoredLayers = true)
     {
         List<ThemeColor?> composite = Enumerable.Repeat<ThemeColor?>(null, _pixelStudio.CanvasWidth * _pixelStudio.CanvasHeight).ToList();
         for (int layerIndex = frame.Layers.Count - 1; layerIndex >= 0; layerIndex--)
         {
             PixelStudioLayerState layer = frame.Layers[layerIndex];
-            if (!layer.IsVisible)
+            if (!layer.IsVisible || (!includeOnionIgnoredLayers && layer.IsIgnoredByOnionSkin))
             {
                 continue;
             }
@@ -11671,7 +12243,7 @@ public sealed partial class EditorWindowScene
             return [];
         }
 
-        List<ThemeColor?> sourcePixels = ComposeVisiblePixels(_pixelStudio.Frames[frameIndex]);
+        List<ThemeColor?> sourcePixels = ComposeVisiblePixels(_pixelStudio.Frames[frameIndex], includeOnionIgnoredLayers: false);
         List<ThemeColor?> tintedPixels = new(sourcePixels.Count);
         foreach (ThemeColor? pixel in sourcePixels)
         {
@@ -11702,6 +12274,7 @@ public sealed partial class EditorWindowScene
             ? 0
             : Math.Clamp(_pixelStudio.ActivePaletteIndex, 0, _pixelStudio.Palette.Count - 1);
         NormalizeLoopRangeState();
+        NormalizeAnimationClipState();
     }
 
     private PixelStudioFrameState CurrentPixelFrame => _pixelStudio.Frames[_pixelStudio.ActiveFrameIndex];
@@ -11713,6 +12286,11 @@ public sealed partial class EditorWindowScene
     private static float NormalizeLayerOpacity(float value)
     {
         return Math.Clamp(value, 0.05f, 1f);
+    }
+
+    private static bool LayerSharesPixelsAcrossFrames(PixelStudioLayerState layer)
+    {
+        return layer.IsSharedAcrossFrames || !string.IsNullOrWhiteSpace(layer.LinkedCelId);
     }
 
     private bool CanTransformCurrentLayer(string actionLabel)
@@ -11862,6 +12440,7 @@ public sealed partial class EditorWindowScene
             PixelStudioWarningDialogKind.DeleteLockedPaletteSwatch => "Unlock & Delete",
             PixelStudioWarningDialogKind.DeleteUsedPaletteSwatch when _pixelWarningPaletteSwapTargetIndex >= 0 => "Swap Colors",
             PixelStudioWarningDialogKind.DeleteUsedPaletteSwatch => "Delete",
+            PixelStudioWarningDialogKind.DeletePaintedFrame => "Delete Frame",
             PixelStudioWarningDialogKind.ApplyPaletteWithArtworkColors => "Save & Swap",
             _ => "Continue"
         };
@@ -11906,6 +12485,7 @@ public sealed partial class EditorWindowScene
             PixelStudioWarningDialogKind.AlphaLockedLayerEdit => "Cancel",
             PixelStudioWarningDialogKind.ModifyLockedPalette => "Cancel",
             PixelStudioWarningDialogKind.DeleteUsedPaletteSwatch => "Cancel",
+            PixelStudioWarningDialogKind.DeletePaintedFrame => "Keep Frame",
             _ => "Cancel"
         };
     }
@@ -11986,6 +12566,7 @@ public sealed partial class EditorWindowScene
             CanvasWidth = width,
             CanvasHeight = height,
             Palette = CreateDefaultPalette(),
+            AnimationClips = [],
             Frames =
             [
                 new PixelStudioFrameState
@@ -12015,6 +12596,7 @@ public sealed partial class EditorWindowScene
             CanvasHeight = 16,
             ActiveLayerIndex = 0,
             Palette = CreateDefaultPalette(),
+            AnimationClips = [],
             Frames =
             [
                 CreateDemoFrame("Frame 1", false),
@@ -12115,6 +12697,7 @@ public sealed partial class EditorWindowScene
         _pixelStudio.LoopStartFrameIndex = source.LoopStartFrameIndex;
         _pixelStudio.LoopEndFrameIndex = source.LoopEndFrameIndex;
         _pixelStudio.PlaybackLoopMode = source.PlaybackLoopMode;
+        _pixelStudio.ActiveAnimationClipIndex = source.ActiveAnimationClipIndex;
         _pixelStudio.ActiveTool = source.ActiveTool;
         _pixelStudio.RectangleRenderMode = source.RectangleRenderMode;
         _pixelStudio.EllipseRenderMode = source.EllipseRenderMode;
@@ -12126,6 +12709,8 @@ public sealed partial class EditorWindowScene
         _pixelStudio.PreviewFrameIndex = source.PreviewFrameIndex;
         _pixelStudio.Palette.Clear();
         _pixelStudio.Palette.AddRange(source.Palette);
+        _pixelStudio.AnimationClips.Clear();
+        _pixelStudio.AnimationClips.AddRange(source.AnimationClips.Select(CloneAnimationClip));
         _pixelStudio.Frames.Clear();
         _pixelStudio.Frames.AddRange(source.Frames.Select(CloneFrameState));
         _rectangleRenderMode = source.RectangleRenderMode;
@@ -12134,6 +12719,7 @@ public sealed partial class EditorWindowScene
         _shapeRenderMode = source.ShapeRenderMode;
         RelinkSharedLayerReferences(_pixelStudio.Frames);
         EnsurePixelStudioIndices();
+        NormalizeAnimationClipState();
         NormalizeOnionDisplayState();
         ResetPaletteInteractionState();
         InvalidatePixelStudioPixelBuffers();
@@ -12166,6 +12752,7 @@ public sealed partial class EditorWindowScene
             LoopStartFrameIndex = source.LoopStartFrameIndex,
             LoopEndFrameIndex = source.LoopEndFrameIndex,
             PlaybackLoopMode = source.PlaybackLoopMode,
+            ActiveAnimationClipIndex = source.ActiveAnimationClipIndex,
             ActiveTool = source.ActiveTool,
             SelectionMode = source.SelectionMode,
             RectangleRenderMode = source.RectangleRenderMode,
@@ -12184,6 +12771,7 @@ public sealed partial class EditorWindowScene
             ActiveLayerIndex = source.ActiveLayerIndex,
             PreviewFrameIndex = source.PreviewFrameIndex,
             Palette = source.Palette.ToList(),
+            AnimationClips = source.AnimationClips.Select(CloneAnimationClip).ToList(),
             Frames = frames
         };
     }
@@ -12254,6 +12842,14 @@ public sealed partial class EditorWindowScene
             return;
         }
 
+        if (AppStoragePaths.IsOneDrivePath(documentPath))
+        {
+            _currentPixelDocumentPath = null;
+            RefreshPixelStudioView("OneDrive folders are not used by Kuma. Choose a local save location.");
+            SavePixelStudioDocumentAs();
+            return;
+        }
+
         try
         {
             string? directory = Path.GetDirectoryName(documentPath);
@@ -12299,7 +12895,13 @@ public sealed partial class EditorWindowScene
             return;
         }
 
-        _currentPixelDocumentPath = EnsurePixelStudioDocumentExtension(documentPath);
+        string resolvedDocumentPath = EnsurePixelStudioDocumentExtension(documentPath);
+        if (RejectOneDriveOutputPath(resolvedDocumentPath))
+        {
+            return;
+        }
+
+        _currentPixelDocumentPath = resolvedDocumentPath;
         _pixelStudio.DocumentName = Path.GetFileNameWithoutExtension(_currentPixelDocumentPath);
         SavePixelStudioDocument();
     }
@@ -12307,7 +12909,7 @@ public sealed partial class EditorWindowScene
     private void ExportPixelStudioPng()
     {
         string initialDirectory = ResolvePixelStudioDocumentDirectory();
-        string suggestedFileName = $"{SanitizePixelStudioDocumentName(_pixelStudio.DocumentName)}.png";
+        string suggestedFileName = $"{BuildExportFileStem(string.Empty)}.png";
         string? exportPath = PixelStudioDocumentFilePicker.ShowPngSaveDialog(initialDirectory, suggestedFileName);
         if (string.IsNullOrWhiteSpace(exportPath))
         {
@@ -12318,6 +12920,11 @@ public sealed partial class EditorWindowScene
         string outputPath = Path.GetExtension(exportPath).Equals(".png", StringComparison.OrdinalIgnoreCase)
             ? exportPath
             : $"{exportPath}.png";
+        if (RejectOneDriveOutputPath(outputPath))
+        {
+            return;
+        }
+
         try
         {
             List<ThemeColor?> composite = ComposeVisiblePixels(CurrentPixelFrame);
@@ -12325,7 +12932,8 @@ public sealed partial class EditorWindowScene
             WriteCompositePixelsToImage(image, composite, 0);
 
             image.SaveAsPng(outputPath);
-            RefreshPixelStudioView($"Exported PNG to {Path.GetFileName(outputPath)}.");
+            string metadataPath = WritePixelStudioExportMetadata(outputPath, "png", [Path.GetFileName(outputPath)], [_pixelStudio.ActiveFrameIndex]);
+            RefreshPixelStudioView($"Exported PNG to {Path.GetFileName(outputPath)} and metadata to {Path.GetFileName(metadataPath)}.");
         }
         catch (Exception ex)
         {
@@ -12336,7 +12944,9 @@ public sealed partial class EditorWindowScene
     private void ExportPixelStudioSpriteStrip()
     {
         string initialDirectory = ResolvePixelStudioDocumentDirectory();
-        string suggestedFileName = $"{SanitizePixelStudioDocumentName(_pixelStudio.DocumentName)}-strip.png";
+        List<int> exportFrameIndices = BuildSelectedExportFrameIndices();
+        string? selectedClipName = BuildSelectedExportClipName();
+        string suggestedFileName = $"{BuildExportFileStem("-strip")}.png";
         string? exportPath = PixelStudioDocumentFilePicker.ShowPngSaveDialog(initialDirectory, suggestedFileName);
         if (string.IsNullOrWhiteSpace(exportPath))
         {
@@ -12347,19 +12957,28 @@ public sealed partial class EditorWindowScene
         string outputPath = Path.GetExtension(exportPath).Equals(".png", StringComparison.OrdinalIgnoreCase)
             ? exportPath
             : $"{exportPath}.png";
+        if (RejectOneDriveOutputPath(outputPath))
+        {
+            return;
+        }
 
         try
         {
-            int frameCount = Math.Max(_pixelStudio.Frames.Count, 1);
+            int frameCount = Math.Max(exportFrameIndices.Count, 1);
             using Image<Rgba32> image = new(_pixelStudio.CanvasWidth * frameCount, _pixelStudio.CanvasHeight);
-            for (int frameIndex = 0; frameIndex < frameCount; frameIndex++)
+            for (int exportIndex = 0; exportIndex < frameCount; exportIndex++)
             {
+                int frameIndex = exportFrameIndices[Math.Clamp(exportIndex, 0, exportFrameIndices.Count - 1)];
                 List<ThemeColor?> composite = ComposeVisiblePixels(_pixelStudio.Frames[frameIndex]);
-                WriteCompositePixelsToImage(image, composite, frameIndex * _pixelStudio.CanvasWidth);
+                WriteCompositePixelsToImage(image, composite, exportIndex * _pixelStudio.CanvasWidth);
             }
 
             image.SaveAsPng(outputPath);
-            RefreshPixelStudioView($"Exported sprite strip to {Path.GetFileName(outputPath)}.");
+            string metadataPath = WritePixelStudioExportMetadata(outputPath, "sprite-strip", null, exportFrameIndices);
+            string exportTarget = string.IsNullOrWhiteSpace(selectedClipName)
+                ? "sprite strip"
+                : $"clip {selectedClipName} sprite strip";
+            RefreshPixelStudioView($"Exported {exportTarget} to {Path.GetFileName(outputPath)} and metadata to {Path.GetFileName(metadataPath)}.");
         }
         catch (Exception ex)
         {
@@ -12370,7 +12989,9 @@ public sealed partial class EditorWindowScene
     private void ExportPixelStudioPngSequence()
     {
         string initialDirectory = ResolvePixelStudioDocumentDirectory();
-        string suggestedFileName = $"{SanitizePixelStudioDocumentName(_pixelStudio.DocumentName)}-frames.png";
+        List<int> exportFrameIndices = BuildSelectedExportFrameIndices();
+        string? selectedClipName = BuildSelectedExportClipName();
+        string suggestedFileName = $"{BuildExportFileStem("-frames")}.png";
         string? exportPath = PixelStudioDocumentFilePicker.ShowPngSaveDialog(initialDirectory, suggestedFileName);
         if (string.IsNullOrWhiteSpace(exportPath))
         {
@@ -12381,22 +13002,34 @@ public sealed partial class EditorWindowScene
         string outputPath = Path.GetExtension(exportPath).Equals(".png", StringComparison.OrdinalIgnoreCase)
             ? exportPath
             : $"{exportPath}.png";
+        if (RejectOneDriveOutputPath(outputPath))
+        {
+            return;
+        }
+
         string directory = Path.GetDirectoryName(outputPath) ?? initialDirectory;
         string fileStem = Path.GetFileNameWithoutExtension(outputPath);
 
         try
         {
             Directory.CreateDirectory(directory);
-            for (int frameIndex = 0; frameIndex < _pixelStudio.Frames.Count; frameIndex++)
+            List<string> exportedFiles = [];
+            for (int exportIndex = 0; exportIndex < exportFrameIndices.Count; exportIndex++)
             {
+                int frameIndex = exportFrameIndices[exportIndex];
                 List<ThemeColor?> composite = ComposeVisiblePixels(_pixelStudio.Frames[frameIndex]);
                 using Image<Rgba32> image = new(_pixelStudio.CanvasWidth, _pixelStudio.CanvasHeight);
                 WriteCompositePixelsToImage(image, composite, 0);
-                string framePath = Path.Combine(directory, $"{fileStem}_{frameIndex + 1:D3}.png");
+                string framePath = Path.Combine(directory, $"{fileStem}_{exportIndex + 1:D3}.png");
                 image.SaveAsPng(framePath);
+                exportedFiles.Add(Path.GetFileName(framePath));
             }
 
-            RefreshPixelStudioView($"Exported {_pixelStudio.Frames.Count} PNG frame(s) to {Path.GetFileName(directory)}.");
+            string metadataPath = WritePixelStudioExportMetadata(outputPath, "png-sequence", exportedFiles, exportFrameIndices);
+            string exportTarget = string.IsNullOrWhiteSpace(selectedClipName)
+                ? $"{exportFrameIndices.Count} PNG frame(s)"
+                : $"{selectedClipName} clip ({exportFrameIndices.Count} PNG frame(s))";
+            RefreshPixelStudioView($"Exported {exportTarget} and metadata to {Path.GetFileName(metadataPath)}.");
         }
         catch (Exception ex)
         {
@@ -12407,7 +13040,9 @@ public sealed partial class EditorWindowScene
     private void ExportPixelStudioGif()
     {
         string initialDirectory = ResolvePixelStudioDocumentDirectory();
-        string suggestedFileName = $"{SanitizePixelStudioDocumentName(_pixelStudio.DocumentName)}.gif";
+        List<int> exportFrameIndices = BuildSelectedExportFrameIndices();
+        string? selectedClipName = BuildSelectedExportClipName();
+        string suggestedFileName = $"{BuildExportFileStem(string.Empty)}.gif";
         string? exportPath = PixelStudioDocumentFilePicker.ShowGifSaveDialog(initialDirectory, suggestedFileName);
         if (string.IsNullOrWhiteSpace(exportPath))
         {
@@ -12418,23 +13053,33 @@ public sealed partial class EditorWindowScene
         string outputPath = Path.GetExtension(exportPath).Equals(".gif", StringComparison.OrdinalIgnoreCase)
             ? exportPath
             : $"{exportPath}.gif";
+        if (RejectOneDriveOutputPath(outputPath))
+        {
+            return;
+        }
 
         try
         {
-            using Image<Rgba32> gifImage = BuildFrameImage(_pixelStudio.Frames[0]);
+            int firstFrameIndex = exportFrameIndices[0];
+            using Image<Rgba32> gifImage = BuildFrameImage(_pixelStudio.Frames[firstFrameIndex]);
             GifMetadata gifMetadata = gifImage.Metadata.GetGifMetadata();
             gifMetadata.RepeatCount = 0;
-            gifImage.Frames.RootFrame.Metadata.GetGifMetadata().FrameDelay = Math.Max(1, GetFrameDurationMilliseconds(0) / 10);
+            gifImage.Frames.RootFrame.Metadata.GetGifMetadata().FrameDelay = Math.Max(1, GetFrameDurationMilliseconds(firstFrameIndex) / 10);
 
-            for (int frameIndex = 1; frameIndex < _pixelStudio.Frames.Count; frameIndex++)
+            for (int exportIndex = 1; exportIndex < exportFrameIndices.Count; exportIndex++)
             {
+                int frameIndex = exportFrameIndices[exportIndex];
                 using Image<Rgba32> frameImage = BuildFrameImage(_pixelStudio.Frames[frameIndex]);
                 frameImage.Frames.RootFrame.Metadata.GetGifMetadata().FrameDelay = Math.Max(1, GetFrameDurationMilliseconds(frameIndex) / 10);
                 gifImage.Frames.AddFrame(frameImage.Frames.RootFrame);
             }
 
             gifImage.SaveAsGif(outputPath);
-            RefreshPixelStudioView($"Exported GIF to {Path.GetFileName(outputPath)}.");
+            string metadataPath = WritePixelStudioExportMetadata(outputPath, "gif", [Path.GetFileName(outputPath)], exportFrameIndices);
+            string exportTarget = string.IsNullOrWhiteSpace(selectedClipName)
+                ? "GIF"
+                : $"{selectedClipName} clip GIF";
+            RefreshPixelStudioView($"Exported {exportTarget} to {Path.GetFileName(outputPath)} and metadata to {Path.GetFileName(metadataPath)}.");
         }
         catch (Exception ex)
         {
@@ -12448,6 +13093,56 @@ public sealed partial class EditorWindowScene
         Image<Rgba32> image = new(_pixelStudio.CanvasWidth, _pixelStudio.CanvasHeight);
         WriteCompositePixelsToImage(image, composite, 0);
         return image;
+    }
+
+    private string WritePixelStudioExportMetadata(string outputPath, string exportKind, IReadOnlyList<string>? frameFileNames, IReadOnlyList<int>? exportedFrameIndices)
+    {
+        string metadataPath = Path.ChangeExtension(outputPath, ".json");
+        PixelStudioExportMetadataDocument document = BuildPixelStudioExportMetadataDocument(exportKind, frameFileNames, exportedFrameIndices);
+        string json = JsonSerializer.Serialize(document, PixelStudioDocumentSerializerOptions);
+        File.WriteAllText(metadataPath, json);
+        return metadataPath;
+    }
+
+    private PixelStudioExportMetadataDocument BuildPixelStudioExportMetadataDocument(string exportKind, IReadOnlyList<string>? frameFileNames, IReadOnlyList<int>? exportedFrameIndices)
+    {
+        bool hasLoopRange = TryGetLoopRange(out int loopStartFrameIndex, out int loopEndFrameIndex);
+        List<int> frameIndices = exportedFrameIndices is not null && exportedFrameIndices.Count > 0
+            ? exportedFrameIndices.Select(index => Math.Clamp(index, 0, Math.Max(_pixelStudio.Frames.Count - 1, 0))).Distinct().ToList()
+            : Enumerable.Range(0, _pixelStudio.Frames.Count).ToList();
+        return new PixelStudioExportMetadataDocument
+        {
+            DocumentName = _pixelStudio.DocumentName,
+            ExportKind = exportKind,
+            CanvasWidth = _pixelStudio.CanvasWidth,
+            CanvasHeight = _pixelStudio.CanvasHeight,
+            FrameCount = frameIndices.Count,
+            FramesPerSecond = _pixelStudio.FramesPerSecond,
+            PlaybackLoopMode = _pixelStudio.PlaybackLoopMode,
+            LoopRange = hasLoopRange
+                ? new PixelStudioExportLoopRangeDocument
+                {
+                    StartFrameIndex = loopStartFrameIndex,
+                    EndFrameIndex = loopEndFrameIndex
+                }
+                : null,
+            Clips = _pixelStudio.AnimationClips.Select(clip => new PixelStudioExportClipDocument
+            {
+                Name = clip.Name,
+                StartFrameIndex = clip.StartFrameIndex,
+                EndFrameIndex = clip.EndFrameIndex,
+                PlaybackLoopMode = clip.PlaybackLoopMode
+            }).ToList(),
+            Frames = frameIndices.Select((frameIndex, exportIndex) => new PixelStudioExportFrameDocument
+            {
+                Index = frameIndex,
+                Name = _pixelStudio.Frames[frameIndex].Name,
+                DurationMilliseconds = GetFrameDurationMilliseconds(frameIndex),
+                FileName = frameFileNames is not null && exportIndex < frameFileNames.Count
+                    ? frameFileNames[exportIndex]
+                    : null
+            }).ToList()
+        };
     }
 
     private void WriteCompositePixelsToImage(Image<Rgba32> image, IReadOnlyList<ThemeColor?> composite, int offsetX)
@@ -12536,6 +13231,148 @@ public sealed partial class EditorWindowScene
         }
 
         return candidate;
+    }
+
+    private string BuildUniqueAnimationClipName(string baseName, int excludeClipIndex = -1)
+    {
+        string requested = SanitizeAnimationClipName(baseName);
+        HashSet<string> existingNames = _pixelStudio.AnimationClips
+            .Where((clip, index) => index != excludeClipIndex)
+            .Select(clip => clip.Name)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        if (!existingNames.Contains(requested))
+        {
+            return requested;
+        }
+
+        int suffix = 2;
+        string candidate = $"{requested} {suffix}";
+        while (existingNames.Contains(candidate))
+        {
+            suffix++;
+            candidate = $"{requested} {suffix}";
+        }
+
+        return candidate;
+    }
+
+    private void ApplyAnimationClipToPlayback(int clipIndex, bool refreshStatus)
+    {
+        if (clipIndex < 0 || clipIndex >= _pixelStudio.AnimationClips.Count)
+        {
+            _pixelStudio.ActiveAnimationClipIndex = -1;
+            _pixelStudio.LoopRangeEnabled = false;
+            _pixelStudio.LoopStartFrameIndex = 0;
+            _pixelStudio.LoopEndFrameIndex = Math.Max(_pixelStudio.Frames.Count - 1, 0);
+            NormalizeLoopRangeState();
+            _animationClipRenameActive = false;
+            _animationClipRenameBuffer = string.Empty;
+            ClearSelectedText(EditableTextTarget.AnimationClipRename);
+            if (_pixelStudio.IsPlaying)
+            {
+                _pixelStudio.PreviewFrameIndex = GetPlaybackStartFrameIndex();
+                _lastPlaybackTick = 0;
+                _pixelPlaybackDirection = _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse ? -1 : 1;
+            }
+
+            if (refreshStatus)
+            {
+                RefreshPixelStudioView("No clip selected. Full timeline active.", rebuildLayout: true);
+            }
+
+            return;
+        }
+
+        PixelStudioAnimationClip clip = _pixelStudio.AnimationClips[clipIndex];
+        _pixelStudio.ActiveAnimationClipIndex = clipIndex;
+        _pixelStudio.LoopRangeEnabled = !(clip.StartFrameIndex == 0 && clip.EndFrameIndex == _pixelStudio.Frames.Count - 1);
+        _pixelStudio.LoopStartFrameIndex = clip.StartFrameIndex;
+        _pixelStudio.LoopEndFrameIndex = clip.EndFrameIndex;
+        _pixelStudio.PlaybackLoopMode = clip.PlaybackLoopMode;
+        NormalizeLoopRangeState();
+        if (!_animationClipRenameActive)
+        {
+            _animationClipRenameBuffer = clip.Name;
+        }
+
+        if (_pixelStudio.IsPlaying)
+        {
+            _pixelStudio.PreviewFrameIndex = GetPlaybackStartFrameIndex();
+            _lastPlaybackTick = 0;
+            _pixelPlaybackDirection = _pixelStudio.PlaybackLoopMode == PixelStudioPlaybackLoopMode.Reverse ? -1 : 1;
+        }
+
+        if (refreshStatus)
+        {
+            RefreshPixelStudioView($"Active clip: {BuildAnimationClipRangeLabel(clip)}.", rebuildLayout: true);
+        }
+    }
+
+    private void UpdateActiveAnimationClipFromLoopState()
+    {
+        if (_pixelStudio.ActiveAnimationClipIndex < 0 || _pixelStudio.ActiveAnimationClipIndex >= _pixelStudio.AnimationClips.Count)
+        {
+            return;
+        }
+
+        NormalizeLoopRangeState();
+        PixelStudioAnimationClip clip = _pixelStudio.AnimationClips[_pixelStudio.ActiveAnimationClipIndex];
+        clip.StartFrameIndex = _pixelStudio.LoopRangeEnabled ? _pixelStudio.LoopStartFrameIndex : 0;
+        clip.EndFrameIndex = _pixelStudio.LoopRangeEnabled ? _pixelStudio.LoopEndFrameIndex : Math.Max(_pixelStudio.Frames.Count - 1, 0);
+        clip.PlaybackLoopMode = _pixelStudio.PlaybackLoopMode;
+    }
+
+    private string BuildActiveAnimationClipLabel()
+    {
+        if (_pixelStudio.ActiveAnimationClipIndex < 0 || _pixelStudio.ActiveAnimationClipIndex >= _pixelStudio.AnimationClips.Count)
+        {
+            return string.Empty;
+        }
+
+        return BuildAnimationClipRangeLabel(_pixelStudio.AnimationClips[_pixelStudio.ActiveAnimationClipIndex]);
+    }
+
+    private static string BuildAnimationClipRangeLabel(PixelStudioAnimationClip clip)
+    {
+        string modeLabel = clip.PlaybackLoopMode switch
+        {
+            PixelStudioPlaybackLoopMode.Reverse => "Rev",
+            PixelStudioPlaybackLoopMode.PingPong => "Bounce",
+            _ => "Fwd"
+        };
+        return $"{clip.Name} ({clip.StartFrameIndex + 1}-{clip.EndFrameIndex + 1}, {modeLabel})";
+    }
+
+    private List<int> BuildSelectedExportFrameIndices()
+    {
+        if (_pixelStudio.ActiveAnimationClipIndex >= 0 && _pixelStudio.ActiveAnimationClipIndex < _pixelStudio.AnimationClips.Count)
+        {
+            PixelStudioAnimationClip clip = _pixelStudio.AnimationClips[_pixelStudio.ActiveAnimationClipIndex];
+            int startFrameIndex = Math.Clamp(Math.Min(clip.StartFrameIndex, clip.EndFrameIndex), 0, Math.Max(_pixelStudio.Frames.Count - 1, 0));
+            int endFrameIndex = Math.Clamp(Math.Max(clip.StartFrameIndex, clip.EndFrameIndex), 0, Math.Max(_pixelStudio.Frames.Count - 1, 0));
+            return Enumerable.Range(startFrameIndex, (endFrameIndex - startFrameIndex) + 1).ToList();
+        }
+
+        return Enumerable.Range(0, _pixelStudio.Frames.Count).ToList();
+    }
+
+    private string? BuildSelectedExportClipName()
+    {
+        return _pixelStudio.ActiveAnimationClipIndex >= 0 && _pixelStudio.ActiveAnimationClipIndex < _pixelStudio.AnimationClips.Count
+            ? _pixelStudio.AnimationClips[_pixelStudio.ActiveAnimationClipIndex].Name
+            : null;
+    }
+
+    private string BuildExportFileStem(string suffix)
+    {
+        string baseName = SanitizePixelStudioDocumentName(_pixelStudio.DocumentName);
+        string? clipName = BuildSelectedExportClipName();
+        if (string.IsNullOrWhiteSpace(clipName))
+        {
+            return $"{baseName}{suffix}";
+        }
+
+        return $"{baseName}-{SanitizeAnimationClipName(clipName).Replace(' ', '-')}{suffix}";
     }
 
     private string BuildUniqueLayerName(string baseName)
@@ -12666,6 +13503,7 @@ public sealed partial class EditorWindowScene
             LoopStartFrameIndex = _pixelStudio.LoopStartFrameIndex,
             LoopEndFrameIndex = _pixelStudio.LoopEndFrameIndex,
             PlaybackLoopMode = _pixelStudio.PlaybackLoopMode,
+            ActiveAnimationClipIndex = _pixelStudio.ActiveAnimationClipIndex,
             ActiveTool = _pixelStudio.ActiveTool,
             RectangleRenderMode = _rectangleRenderMode,
             EllipseRenderMode = _ellipseRenderMode,
@@ -12675,6 +13513,13 @@ public sealed partial class EditorWindowScene
             ActiveFrameIndex = _pixelStudio.ActiveFrameIndex,
             ActiveLayerIndex = _pixelStudio.ActiveLayerIndex,
             Palette = _pixelStudio.Palette.Select(ToPaletteColorSetting).ToList(),
+            AnimationClips = _pixelStudio.AnimationClips.Select(clip => new PixelStudioProjectAnimationClipDocument
+            {
+                Name = clip.Name,
+                StartFrameIndex = clip.StartFrameIndex,
+                EndFrameIndex = clip.EndFrameIndex,
+                PlaybackLoopMode = clip.PlaybackLoopMode
+            }).ToList(),
             Frames = _pixelStudio.Frames.Select(frame => new PixelStudioProjectFrameDocument
             {
                 Name = frame.Name,
@@ -12688,6 +13533,8 @@ public sealed partial class EditorWindowScene
                     IsLocked = layer.IsLocked,
                     IsAlphaLocked = layer.IsAlphaLocked,
                     IsSharedAcrossFrames = layer.IsSharedAcrossFrames,
+                    IsIgnoredByOnionSkin = layer.IsIgnoredByOnionSkin,
+                    LinkedCelId = layer.LinkedCelId,
                     Opacity = NormalizeLayerOpacity(layer.Opacity),
                     Pixels = layer.Pixels.ToArray()
                 }).ToList()
@@ -12713,13 +13560,15 @@ public sealed partial class EditorWindowScene
                     Name = string.IsNullOrWhiteSpace(layer.Name) ? "Layer" : layer.Name,
                     GroupId = string.IsNullOrWhiteSpace(layer.GroupId) ? null : layer.GroupId,
                     GroupName = string.IsNullOrWhiteSpace(layer.GroupName) ? null : layer.GroupName,
-                    IsVisible = layer.IsVisible,
-                    IsLocked = layer.IsLocked,
-                    IsAlphaLocked = layer.IsAlphaLocked,
-                    IsSharedAcrossFrames = layer.IsSharedAcrossFrames,
-                    Opacity = NormalizeLayerOpacity(layer.Opacity),
-                    Pixels = document.UsesDirectColorPixels
-                        ? NormalizeDirectPixelBuffer(layer.Pixels, pixelCount)
+                        IsVisible = layer.IsVisible,
+                        IsLocked = layer.IsLocked,
+                        IsAlphaLocked = layer.IsAlphaLocked,
+                        IsSharedAcrossFrames = layer.IsSharedAcrossFrames,
+                        IsIgnoredByOnionSkin = layer.IsIgnoredByOnionSkin,
+                        LinkedCelId = string.IsNullOrWhiteSpace(layer.LinkedCelId) ? null : layer.LinkedCelId,
+                        Opacity = NormalizeLayerOpacity(layer.Opacity),
+                        Pixels = document.UsesDirectColorPixels
+                            ? NormalizeDirectPixelBuffer(layer.Pixels, pixelCount)
                         : ConvertLegacyIndexedPixelBuffer(layer.Pixels, pixelCount, legacyPalette)
                 }).ToList()
             })
@@ -12777,6 +13626,16 @@ public sealed partial class EditorWindowScene
             ActiveFrameIndex = document.ActiveFrameIndex,
             ActiveLayerIndex = document.ActiveLayerIndex,
             Palette = palette,
+            ActiveAnimationClipIndex = document.ActiveAnimationClipIndex,
+            AnimationClips = document.AnimationClips
+                .Select(clip => new PixelStudioAnimationClip
+                {
+                    Name = string.IsNullOrWhiteSpace(clip.Name) ? "Clip" : clip.Name,
+                    StartFrameIndex = clip.StartFrameIndex,
+                    EndFrameIndex = clip.EndFrameIndex,
+                    PlaybackLoopMode = clip.PlaybackLoopMode
+                })
+                .ToList(),
             Frames = frames
         };
     }
@@ -12862,13 +13721,17 @@ public sealed partial class EditorWindowScene
         if (!string.IsNullOrWhiteSpace(_currentPixelDocumentPath))
         {
             string? currentDirectory = Path.GetDirectoryName(_currentPixelDocumentPath);
-            if (!string.IsNullOrWhiteSpace(currentDirectory) && Directory.Exists(currentDirectory))
+            if (!string.IsNullOrWhiteSpace(currentDirectory)
+                && Directory.Exists(currentDirectory)
+                && !AppStoragePaths.IsOneDrivePath(currentDirectory))
             {
                 return currentDirectory;
             }
         }
 
-        if (!string.IsNullOrWhiteSpace(_lastProjectPath) && Directory.Exists(_lastProjectPath))
+        if (!string.IsNullOrWhiteSpace(_lastProjectPath)
+            && Directory.Exists(_lastProjectPath)
+            && !AppStoragePaths.IsOneDrivePath(_lastProjectPath))
         {
             return _lastProjectPath;
         }
@@ -12879,6 +13742,17 @@ public sealed partial class EditorWindowScene
         }
 
         return AppStoragePaths.DefaultProjectLibraryPath;
+    }
+
+    private bool RejectOneDriveOutputPath(string path)
+    {
+        if (!AppStoragePaths.IsOneDrivePath(path))
+        {
+            return false;
+        }
+
+        RefreshPixelStudioView("OneDrive folders are not used by Kuma. Choose a local folder.");
+        return true;
     }
 
     private string BuildSuggestedPixelStudioFileName()
@@ -12913,7 +13787,9 @@ public sealed partial class EditorWindowScene
         string? directory = Path.GetDirectoryName(normalizedDocumentPath);
         if (!string.IsNullOrWhiteSpace(directory) && Directory.Exists(directory))
         {
-            _lastProjectPath = directory;
+            _lastProjectPath = AppStoragePaths.IsOneDrivePath(directory)
+                ? AppStoragePaths.DefaultProjectLibraryPath
+                : directory;
         }
 
         AddRecentProject(new RecentProjectEntry
@@ -12969,8 +13845,21 @@ public sealed partial class EditorWindowScene
             IsLocked = layer.IsLocked,
             IsAlphaLocked = layer.IsAlphaLocked,
             IsSharedAcrossFrames = layer.IsSharedAcrossFrames,
+            IsIgnoredByOnionSkin = layer.IsIgnoredByOnionSkin,
+            LinkedCelId = layer.LinkedCelId,
             Opacity = NormalizeLayerOpacity(layer.Opacity),
             Pixels = layer.Pixels.ToArray()
+        };
+    }
+
+    private static PixelStudioAnimationClip CloneAnimationClip(PixelStudioAnimationClip clip)
+    {
+        return new PixelStudioAnimationClip
+        {
+            Name = clip.Name,
+            StartFrameIndex = clip.StartFrameIndex,
+            EndFrameIndex = clip.EndFrameIndex,
+            PlaybackLoopMode = clip.PlaybackLoopMode
         };
     }
 
@@ -12984,8 +13873,26 @@ public sealed partial class EditorWindowScene
         int layerCount = frames.Min(frame => frame.Layers.Count);
         for (int layerIndex = 0; layerIndex < layerCount; layerIndex++)
         {
+            Dictionary<string, int[]> linkedCelPixels = new(StringComparer.Ordinal);
             if (!frames.All(frame => frame.Layers[layerIndex].IsSharedAcrossFrames))
             {
+                foreach (PixelStudioFrameState frame in frames)
+                {
+                    PixelStudioLayerState layer = frame.Layers[layerIndex];
+                    if (string.IsNullOrWhiteSpace(layer.LinkedCelId))
+                    {
+                        continue;
+                    }
+
+                    if (!linkedCelPixels.TryGetValue(layer.LinkedCelId, out int[]? sharedLinkedPixels))
+                    {
+                        linkedCelPixels[layer.LinkedCelId] = layer.Pixels;
+                        continue;
+                    }
+
+                    layer.Pixels = sharedLinkedPixels;
+                }
+
                 continue;
             }
 
@@ -12993,6 +13900,7 @@ public sealed partial class EditorWindowScene
             foreach (PixelStudioFrameState frame in frames)
             {
                 frame.Layers[layerIndex].IsSharedAcrossFrames = true;
+                frame.Layers[layerIndex].LinkedCelId = null;
                 frame.Layers[layerIndex].Pixels = sharedPixels;
             }
         }
@@ -13424,6 +14332,13 @@ public sealed partial class EditorWindowScene
         return string.IsNullOrWhiteSpace(sanitized) ? "Frame" : sanitized;
     }
 
+    private static string SanitizeAnimationClipName(string value)
+    {
+        char[] invalidCharacters = Path.GetInvalidFileNameChars();
+        string sanitized = new string(value.Where(character => !invalidCharacters.Contains(character)).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(sanitized) ? "Clip" : sanitized;
+    }
+
     private void ReplaceSavedPalette(SavedPixelPalette palette)
     {
         int index = _savedPixelPalettes.FindIndex(existing => string.Equals(existing.Id, palette.Id, StringComparison.Ordinal));
@@ -13755,6 +14670,9 @@ public sealed partial class EditorWindowScene
 
     private void UpdateFrameReorderDrag(PixelStudioLayoutSnapshot layout, float mouseX, float mouseY)
     {
+        _pixelMouseX = mouseX;
+        _pixelMouseY = mouseY;
+
         if (_frameDragSourceIndex < 0 || _frameDragSourceIndex >= _pixelStudio.Frames.Count)
         {
             return;
@@ -13765,7 +14683,6 @@ public sealed partial class EditorWindowScene
         if (!_frameDragMoved && ((deltaX * deltaX) + (deltaY * deltaY)) >= 16f)
         {
             _frameDragMoved = true;
-            RefreshPixelStudioInteraction();
         }
 
         if (!_frameDragMoved)
@@ -13774,11 +14691,26 @@ public sealed partial class EditorWindowScene
         }
 
         int nextInsertIndex = ResolveFrameInsertIndex(layout, mouseX, mouseY, _frameDragSourceIndex);
-        if (nextInsertIndex != _frameDragInsertIndex)
+        bool insertIndexChanged = nextInsertIndex != _frameDragInsertIndex;
+        if (insertIndexChanged)
         {
             _frameDragInsertIndex = nextInsertIndex;
-            RefreshPixelStudioInteraction();
         }
+
+        RefreshFrameReorderDragState();
+    }
+
+    private void RefreshFrameReorderDragState()
+    {
+        PixelStudioViewState pixelStudio = _uiState.PixelStudio;
+        pixelStudio.FrameReorderActive = _pixelDragMode == PixelStudioDragMode.ReorderFrame && _frameDragMoved;
+        pixelStudio.FrameReorderSourceIndex = _frameDragSourceIndex;
+        pixelStudio.FrameReorderInsertIndex = _frameDragInsertIndex;
+        pixelStudio.FrameReorderPreviewX = _pixelMouseX;
+        pixelStudio.FrameReorderPreviewY = _pixelMouseY;
+        pixelStudio.FrameReorderPreviewGrabOffsetX = _frameDragGrabOffsetX;
+        pixelStudio.FrameReorderPreviewGrabOffsetY = _frameDragGrabOffsetY;
+        _renderer?.UpdateUiState(_uiState);
     }
 
     private int ResolveFrameInsertIndex(PixelStudioLayoutSnapshot layout, float mouseX, float mouseY, int fallbackIndex)
@@ -13788,12 +14720,14 @@ public sealed partial class EditorWindowScene
             return Math.Clamp(fallbackIndex, 0, _pixelStudio.Frames.Count);
         }
 
-        IndexedRect? hoveredRow = layout.FrameRows.FirstOrDefault(row => row.Rect.Contains(mouseX, mouseY));
-        if (hoveredRow is not null)
+        foreach (IndexedRect row in layout.FrameRows)
         {
-            return mouseX <= hoveredRow.Rect.X + (hoveredRow.Rect.Width * 0.5f)
-                ? hoveredRow.Index
-                : hoveredRow.Index + 1;
+            if (row.Rect.Contains(mouseX, mouseY))
+            {
+                return mouseX <= row.Rect.X + (row.Rect.Width * 0.5f)
+                    ? row.Index
+                    : row.Index + 1;
+            }
         }
 
         if (layout.FrameListViewportRect is null || !layout.FrameListViewportRect.Value.Contains(mouseX, mouseY))
@@ -13801,16 +14735,22 @@ public sealed partial class EditorWindowScene
             return Math.Clamp(fallbackIndex, 0, _pixelStudio.Frames.Count);
         }
 
-        IndexedRect closestRow = layout.FrameRows
-            .OrderBy(row =>
+        IndexedRect closestRow = layout.FrameRows[0];
+        float closestDistanceSquared = float.MaxValue;
+        foreach (IndexedRect row in layout.FrameRows)
+        {
+            float centerX = row.Rect.X + (row.Rect.Width * 0.5f);
+            float centerY = row.Rect.Y + (row.Rect.Height * 0.5f);
+            float dx = centerX - mouseX;
+            float dy = centerY - mouseY;
+            float distanceSquared = (dx * dx) + (dy * dy);
+            if (distanceSquared < closestDistanceSquared)
             {
-                float centerX = row.Rect.X + (row.Rect.Width * 0.5f);
-                float centerY = row.Rect.Y + (row.Rect.Height * 0.5f);
-                float dx = centerX - mouseX;
-                float dy = centerY - mouseY;
-                return (dx * dx) + (dy * dy);
-            })
-            .First();
+                closestDistanceSquared = distanceSquared;
+                closestRow = row;
+            }
+        }
+
         return mouseX <= closestRow.Rect.X + (closestRow.Rect.Width * 0.5f)
             ? closestRow.Index
             : closestRow.Index + 1;
@@ -14021,11 +14961,13 @@ public sealed partial class EditorWindowScene
         bool moved = _frameDragMoved;
         _frameDragSourceIndex = -1;
         _frameDragInsertIndex = -1;
+        _frameDragGrabOffsetX = 0f;
+        _frameDragGrabOffsetY = 0f;
         _frameDragMoved = false;
 
         if (!moved || sourceIndex < 0 || sourceIndex >= _pixelStudio.Frames.Count)
         {
-            RefreshPixelStudioInteraction();
+            RefreshPixelStudioInteraction(rebuildLayout: false);
             return;
         }
 
@@ -14036,7 +14978,7 @@ public sealed partial class EditorWindowScene
         targetIndex = Math.Clamp(targetIndex, 0, _pixelStudio.Frames.Count - 1);
         if (targetIndex == sourceIndex)
         {
-            RefreshPixelStudioInteraction();
+            RefreshPixelStudioInteraction(rebuildLayout: false);
             return;
         }
 

@@ -46,6 +46,8 @@ public sealed class PixelStudioProjectDocument
 
     public PixelStudioPlaybackLoopMode PlaybackLoopMode { get; init; } = PixelStudioPlaybackLoopMode.Forward;
 
+    public int ActiveAnimationClipIndex { get; init; } = -1;
+
     public PixelStudioToolKind ActiveTool { get; init; } = PixelStudioToolKind.Pencil;
 
     public PixelStudioShapeRenderMode RectangleRenderMode { get; init; } = PixelStudioShapeRenderMode.Outline;
@@ -64,7 +66,20 @@ public sealed class PixelStudioProjectDocument
 
     public IReadOnlyList<PaletteColorSetting> Palette { get; init; } = [];
 
+    public IReadOnlyList<PixelStudioProjectAnimationClipDocument> AnimationClips { get; init; } = [];
+
     public IReadOnlyList<PixelStudioProjectFrameDocument> Frames { get; init; } = [];
+}
+
+public sealed class PixelStudioProjectAnimationClipDocument
+{
+    public string Name { get; init; } = "Clip";
+
+    public int StartFrameIndex { get; init; }
+
+    public int EndFrameIndex { get; init; }
+
+    public PixelStudioPlaybackLoopMode PlaybackLoopMode { get; init; } = PixelStudioPlaybackLoopMode.Forward;
 }
 
 public sealed class PixelStudioProjectFrameDocument
@@ -91,6 +106,10 @@ public sealed class PixelStudioProjectLayerDocument
     public bool IsAlphaLocked { get; init; }
 
     public bool IsSharedAcrossFrames { get; init; }
+
+    public bool IsIgnoredByOnionSkin { get; init; }
+
+    public string? LinkedCelId { get; init; }
 
     public float Opacity { get; init; } = 1f;
 
