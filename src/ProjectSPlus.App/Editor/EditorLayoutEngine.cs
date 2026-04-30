@@ -186,12 +186,12 @@ public static partial class EditorLayoutEngine
 
         List<IndexedRect> recentRows = [];
         float recentY = cardY + cardHeight + 74;
-        for (int index = 0; index < uiState.RecentProjects.Count; index++)
+        for (int index = 0; index < uiState.HomeRecentFiles.Count; index++)
         {
             recentRows.Add(new IndexedRect
             {
                 Index = index,
-                Rect = new UiRect(workspaceX + pagePadding, recentY + (index * 56), Math.Min(workspaceWidth - (pagePadding * 2), 720), 46)
+                Rect = new UiRect(workspaceX + pagePadding, recentY + (index * 124), Math.Min(workspaceWidth - (pagePadding * 2), 840), 112)
             });
         }
 
@@ -1028,9 +1028,10 @@ public static partial class EditorLayoutEngine
             contentBottom - timelineResolvedHeight,
             Math.Max(panelAreaWidth - toolbarWidth - leftGap, 0),
             timelineResolvedHeight));
+        const float hiddenTimelineBottomGutter = 20f;
         float canvasBottom = timelineVisible
             ? timelineRect.Y - sectionGap
-            : contentBottom;
+            : Math.Max(contentTop + UiHeaderHeight, contentBottom - hiddenTimelineBottomGutter);
         UiRect toolbarRect = SnapRect(new UiRect(
             workspaceRect.X + padding,
             contentTop,
@@ -1045,22 +1046,28 @@ public static partial class EditorLayoutEngine
             sidebarX = workspaceRect.X + padding + toolbarWidth + leftGap;
         }
 
-        float sidebarAvailableHeight = Math.Max(canvasBottom - contentTop, 0);
+        float sidebarTop = sidebarCollapsed
+            ? contentTop
+            : commandBarRect.Y;
+        float sidebarBottom = canvasBottom;
+        float sidebarAvailableHeight = Math.Max(sidebarBottom - sidebarTop, 0);
         float remainingSidebarHeight = Math.Max(sidebarAvailableHeight - sectionGap, 0);
-        float minimumLayersPanelHeight = pixelStudio.PaletteLibraryVisible ? 92f : 124f;
+        float minimumLayersPanelHeight = timelineVisible
+            ? pixelStudio.PaletteLibraryVisible ? 64f : 80f
+            : pixelStudio.PaletteLibraryVisible ? 92f : 124f;
         float paletteHeightCap = Math.Max(sidebarAvailableHeight - minimumLayersPanelHeight - sectionGap, 160f);
         float desiredPalettePanelHeight = pixelStudio.PaletteLibraryVisible
-            ? Math.Max(remainingSidebarHeight * 0.68f, 272f)
-            : Math.Max(remainingSidebarHeight * 0.56f, 204f);
+            ? Math.Max(remainingSidebarHeight * (timelineVisible ? 0.74f : 0.68f), 272f)
+            : Math.Max(remainingSidebarHeight * (timelineVisible ? 0.64f : 0.56f), 204f);
         float palettePanelHeight = Math.Min(desiredPalettePanelHeight, paletteHeightCap);
         if (sidebarAvailableHeight <= minimumLayersPanelHeight + sectionGap)
         {
             palettePanelHeight = sidebarAvailableHeight;
         }
 
-        UiRect palettePanelRect = SnapRect(new UiRect(sidebarX, contentTop, sidebarWidth, Math.Min(palettePanelHeight, sidebarAvailableHeight)));
+        UiRect palettePanelRect = SnapRect(new UiRect(sidebarX, sidebarTop, sidebarWidth, Math.Min(palettePanelHeight, sidebarAvailableHeight)));
         float layersPanelY = palettePanelRect.Y + palettePanelRect.Height + sectionGap;
-        UiRect layersPanelRect = SnapRect(new UiRect(sidebarX, layersPanelY, sidebarWidth, Math.Max(canvasBottom - layersPanelY, 0)));
+        UiRect layersPanelRect = SnapRect(new UiRect(sidebarX, layersPanelY, sidebarWidth, Math.Max(sidebarBottom - layersPanelY, 0)));
         UiRect canvasPanelRect = SnapRect(new UiRect(canvasStartX, contentTop, canvasWidth, Math.Max(canvasBottom - contentTop, 0)));
         UiRect leftSplitterRect = SnapRect(new UiRect(canvasPanelRect.X - 4, contentTop, 8, Math.Max(canvasBottom - contentTop, 0)));
         UiRect rightSplitterRect = SnapRect(new UiRect(sidebarX - 4, contentTop, 8, Math.Max(canvasBottom - contentTop, 0)));
@@ -1184,6 +1191,7 @@ public static partial class EditorLayoutEngine
             [
                 PixelStudioAction.NewBlankDocument,
                 PixelStudioAction.SaveProjectDocument,
+                PixelStudioAction.SaveProjectDocumentAs,
                 PixelStudioAction.LoadProjectDocument,
                 PixelStudioAction.ImportImage,
                 PixelStudioAction.ExportPng,
@@ -1429,6 +1437,33 @@ public static partial class EditorLayoutEngine
             ? librarySectionY - palettePanelGap - actionSectionHeight
             : paletteBodyRect.Y + paletteBodyRect.Height - actionSectionHeight;
 
+        if (pixelStudio.PaletteLibraryVisible)
+        {
+            float pickerBottom = paletteColorFieldRect is not null
+                ? paletteColorFieldRect.Value.Y + paletteColorFieldRect.Value.Height
+                : paletteColorWheelRect is not null
+                    ? paletteColorWheelRect.Value.Y + paletteColorWheelRect.Value.Height
+                    : activeColorRect.Y + activeColorRect.Height;
+            float estimatedAlphaBottom = pickerBottom + 24f + 18f;
+            int estimatedRecentColorCount = Math.Min(
+                pixelStudio.RecentColors.Count,
+                Math.Max((int)MathF.Floor((paletteInnerWidth + 6f) / (22f + 6f)), 1));
+            float estimatedRecentBottom = estimatedRecentColorCount > 0
+                ? estimatedAlphaBottom + 10f + 22f
+                : estimatedAlphaBottom;
+            float estimatedSwatchViewportY = estimatedRecentBottom + 28f;
+            const float minimumVisibleSwatchHeight = 38f;
+            float currentSwatchHeight = actionsY - 12f - estimatedSwatchViewportY;
+            if (currentSwatchHeight < minimumVisibleSwatchHeight)
+            {
+                float reduceBy = minimumVisibleSwatchHeight - currentSwatchHeight;
+                float minimumLibraryHeight = Math.Min(168f, Math.Max(paletteBodyRect.Height * 0.28f, 128f));
+                librarySectionHeight = Math.Max(librarySectionHeight - reduceBy, minimumLibraryHeight);
+                librarySectionY = paletteBodyRect.Y + paletteBodyRect.Height - librarySectionHeight;
+                actionsY = librarySectionY - palettePanelGap - actionSectionHeight;
+            }
+        }
+
         if (!sidebarCollapsed)
         {
             paletteButtons.Add(new ActionRect<PixelStudioAction>
@@ -1641,9 +1676,7 @@ public static partial class EditorLayoutEngine
             float swatchViewportY = recentBottom + 28f;
             float swatchBottomMargin = pixelStudio.PaletteLibraryVisible ? 12f : palettePanelGap + 6f;
             float rawSwatchViewportHeight = actionsY - swatchBottomMargin - swatchViewportY;
-            float swatchViewportHeight = pixelStudio.PaletteLibraryVisible
-                ? Math.Max(rawSwatchViewportHeight, 0f)
-                : Math.Max(rawSwatchViewportHeight, 54f);
+            float swatchViewportHeight = Math.Max(rawSwatchViewportHeight, 0f);
             if (swatchViewportHeight > 0f)
             {
                 UiRect swatchViewportFrameRect = new(paletteInnerX, swatchViewportY, paletteInnerWidth, swatchViewportHeight);
@@ -1711,8 +1744,8 @@ public static partial class EditorLayoutEngine
             if (pixelStudio.LayerOpacityControlsVisible)
             {
                 float layerSliderX = layersBodyRect.X + 14f;
-                float layerSliderWidth = Math.Max(layersBodyRect.Width - 20f, 72f);
-                layerOpacitySliderRect = new UiRect(layerSliderX, layersButtonRegion.Y + layersButtonRegion.Height + 18f, layerSliderWidth, 10f);
+                float layerSliderWidth = Math.Max(layersBodyRect.Width - 28f, 72f);
+                layerOpacitySliderRect = new UiRect(layerSliderX, layersButtonRegion.Y + layersButtonRegion.Height + 30f, layerSliderWidth, 16f);
                 float layerOpacityRatio = Math.Clamp(pixelStudio.ActiveLayerOpacity, 0f, 1f);
                 float layerOpacityTrackWidth = Math.Max(layerOpacitySliderRect.Value.Width - 4f, 0f);
                 float layerOpacityFillWidth = layerOpacityTrackWidth * layerOpacityRatio;
@@ -1728,10 +1761,10 @@ public static partial class EditorLayoutEngine
                     layerOpacitySliderRect.Value.X + Math.Max(layerOpacitySliderRect.Value.Width - 12f, 0f));
                 layerOpacityKnobRect = new UiRect(
                     layerKnobX,
-                    layerOpacitySliderRect.Value.Y - 3f,
+                    layerOpacitySliderRect.Value.Y - 4f,
                     12f,
-                    Math.Max(layerOpacitySliderRect.Value.Height + 6f, 0f));
-                layerListY = layerOpacitySliderRect.Value.Y + layerOpacitySliderRect.Value.Height + 18f;
+                    Math.Max(layerOpacitySliderRect.Value.Height + 8f, 0f));
+                layerListY = layerOpacitySliderRect.Value.Y + layerOpacitySliderRect.Value.Height + 24f;
             }
             if (pixelStudio.LayerRenameActive)
             {

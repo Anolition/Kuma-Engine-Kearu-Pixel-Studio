@@ -78,8 +78,15 @@ public sealed partial class EditorWindowScene : IWindowScene
     private bool _pixelTimelineVisible;
     private PixelStudioColorPickerMode _pixelColorPickerMode;
     private EditorNotificationSoundMode _notificationSoundMode;
+    private bool _backgroundMusicEnabled = true;
+    private string _backgroundMusicFileName = BackgroundMusicPlayer.DefaultTrackFileName;
+    private int _backgroundMusicVolumePercent = BackgroundMusicPlayer.DefaultVolumePercent;
+    private BackgroundMusicPlaybackMode _backgroundMusicPlaybackMode = BackgroundMusicPlaybackMode.LoopTrack;
     private int _pixelAutosaveIntervalSeconds = 60;
     private int _transformRotationSnapDegrees = 45;
+    private bool _backgroundMusicVolumeDragging;
+    private bool _backgroundMusicVolumeChangedDuringDrag;
+    private bool _skipPixelDocumentSaveDuringClose;
     private ShellDragMode _shellDragMode;
     private PixelStudioDragMode _pixelDragMode;
     private string _paletteRenameBuffer = string.Empty;
@@ -101,7 +108,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     private static readonly int[] TransformRotationSnapSteps = [15, 30, 45, 90];
 
     public EditorWindowScene(EditorShell shell, string initialThemeName)
-        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, [], 0, [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.Custom, 60, 45, [], null, false)
+        : this(shell, initialThemeName, "Segoe UI", FontSizePreset.Medium, new ShortcutBindings(), string.Empty, [], null, new EditorLayoutSettings(), [], null, [], 0, [], null, true, PixelStudioColorPickerMode.RgbField, EditorNotificationSoundMode.None, true, BackgroundMusicPlayer.DefaultTrackFileName, BackgroundMusicPlayer.DefaultVolumePercent, BackgroundMusicPlaybackMode.LoopTrack, 60, 45, [], null, false)
     {
     }
 
@@ -124,6 +131,10 @@ public sealed partial class EditorWindowScene : IWindowScene
         bool promptForPaletteGenerationAfterImport,
         PixelStudioColorPickerMode pixelColorPickerMode,
         EditorNotificationSoundMode notificationSoundMode,
+        bool backgroundMusicEnabled,
+        string backgroundMusicFileName,
+        int backgroundMusicVolumePercent,
+        BackgroundMusicPlaybackMode backgroundMusicPlaybackMode,
         int pixelAutosaveIntervalSeconds,
         int transformRotationSnapDegrees,
         IReadOnlyList<SavedEditorTheme> customThemes,
@@ -163,10 +174,17 @@ public sealed partial class EditorWindowScene : IWindowScene
         _pixelSidebarCollapsed = normalizedLayout.PixelSidebarCollapsed;
         _pixelTimelineVisible = normalizedLayout.PixelTimelineVisible;
         _pixelColorPickerMode = pixelColorPickerMode;
+        _backgroundMusicEnabled = backgroundMusicEnabled;
+        _backgroundMusicFileName = string.IsNullOrWhiteSpace(backgroundMusicFileName)
+            ? BackgroundMusicPlayer.DefaultTrackFileName
+            : backgroundMusicFileName;
+        _backgroundMusicVolumePercent = Math.Clamp(backgroundMusicVolumePercent, 0, 100);
+        _backgroundMusicPlaybackMode = backgroundMusicPlaybackMode;
         _notificationSoundMode = notificationSoundMode;
         _pixelAutosaveIntervalSeconds = EditorAutosaveOptions.Normalize(pixelAutosaveIntervalSeconds);
         _transformRotationSnapDegrees = NormalizeTransformRotationSnapDegrees(transformRotationSnapDegrees);
         NotificationSoundPlayer.SoundMode = _notificationSoundMode;
+        ApplyBackgroundMusicSettings();
         _pixelToolSettingsPanelOffsetX = normalizedLayout.PixelToolSettingsOffsetX ?? float.NaN;
         _pixelToolSettingsPanelOffsetY = normalizedLayout.PixelToolSettingsOffsetY ?? float.NaN;
         _pixelNavigatorVisible = normalizedLayout.PixelNavigatorVisible;
@@ -244,6 +262,8 @@ public sealed partial class EditorWindowScene : IWindowScene
 
     public void Render()
     {
+        SyncBackgroundMusicTrackFromPlayer();
+
         if (_layoutSnapshot is null)
         {
             _layoutSnapshot = EditorLayoutEngine.Create(_width, _height, _shell.Layout, _uiState);
@@ -528,7 +548,7 @@ public sealed partial class EditorWindowScene : IWindowScene
                 IndexedRect? recentRow = _layoutSnapshot.RecentProjectRows.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
                 if (recentRow is not null)
                 {
-                    OpenRecentProject(recentRow.Index);
+                    OpenHomeRecentPixelDocument(recentRow.Index);
                     return;
                 }
 
@@ -574,6 +594,11 @@ public sealed partial class EditorWindowScene : IWindowScene
 
                 break;
             case EditorPageKind.Preferences:
+                if (TryStartBackgroundMusicVolumeDrag(mouseX, mouseY))
+                {
+                    return;
+                }
+
                 ActionRect<EditorPreferenceAction>? preferenceAction = _layoutSnapshot.PreferenceActions.FirstOrDefault(entry => entry.Rect.Contains(mouseX, mouseY));
                 if (preferenceAction is not null)
                 {
@@ -616,6 +641,14 @@ public sealed partial class EditorWindowScene : IWindowScene
         }
 
         _shellDragMode = ShellDragMode.None;
+        bool wasBackgroundMusicVolumeDragging = _backgroundMusicVolumeDragging;
+        _backgroundMusicVolumeDragging = false;
+        if (wasBackgroundMusicVolumeDragging && _backgroundMusicVolumeChangedDuringDrag)
+        {
+            _backgroundMusicVolumeChangedDuringDrag = false;
+            CommitBackgroundMusicVolume("Adjusted background music volume.");
+        }
+
         HandleThemeStudioMouseUp(button);
         if (_layoutSnapshot?.PixelStudio is not null)
         {
@@ -638,6 +671,12 @@ public sealed partial class EditorWindowScene : IWindowScene
         }
 
         if (HandleShellLayoutDrag(_layoutSnapshot, position.X))
+        {
+            UpdateMouseCursor(mouse, position.X, position.Y);
+            return;
+        }
+
+        if (HandleBackgroundMusicVolumeDrag(position.X))
         {
             UpdateMouseCursor(mouse, position.X, position.Y);
             return;
@@ -679,6 +718,11 @@ public sealed partial class EditorWindowScene : IWindowScene
         }
 
         if (CurrentPage == EditorPageKind.Preferences && _uiState.ThemeStudio.Visible)
+        {
+            return;
+        }
+
+        if (CurrentPage == EditorPageKind.Preferences && TryAdjustBackgroundMusicVolumeWithWheel(mouse.Position.X, mouse.Position.Y, scrollWheel.Y))
         {
             return;
         }
@@ -994,14 +1038,46 @@ public sealed partial class EditorWindowScene : IWindowScene
         SyncUiState("Expanded inspector panel.");
     }
 
+    public bool TryPrepareClose(IWindow window)
+    {
+        if (!HasPixelStudioUnsavedChanges())
+        {
+            _skipPixelDocumentSaveDuringClose = false;
+            return true;
+        }
+
+        NotificationSoundPlayer.PlayWarning();
+        PixelStudioClosePromptResult result = PixelStudioClosePrompt.Show(
+            _pixelStudio.DocumentName,
+            hasExistingFile: !string.IsNullOrWhiteSpace(_currentPixelDocumentPath));
+        switch (result)
+        {
+            case PixelStudioClosePromptResult.Save:
+                SavePixelStudioDocument();
+                _skipPixelDocumentSaveDuringClose = false;
+                return !HasPixelStudioUnsavedChanges();
+            case PixelStudioClosePromptResult.Discard:
+                AcceptPixelStudioCloseWithoutSaving();
+                _skipPixelDocumentSaveDuringClose = true;
+                return true;
+            default:
+                _skipPixelDocumentSaveDuringClose = false;
+                SyncUiState("Close cancelled. Save your Kearu artwork when you're ready.");
+                return false;
+        }
+    }
+
     public AppSettings CaptureSettings(AppSettings currentSettings, IWindow window)
     {
-        if (!string.IsNullOrWhiteSpace(_currentPixelDocumentPath))
+        SyncBackgroundMusicTrackFromPlayer();
+
+        if (!_skipPixelDocumentSaveDuringClose && !string.IsNullOrWhiteSpace(_currentPixelDocumentPath))
         {
             SavePixelStudioDocument();
         }
 
         FinalizePixelStudioRecoveryOnCleanExit();
+        _skipPixelDocumentSaveDuringClose = false;
 
         WindowSettings previousWindow = currentSettings.Window.Normalize();
         int safeWidth = window.Size.X >= WindowSettings.MinimumWidth ? window.Size.X : previousWindow.Width;
@@ -1066,6 +1142,10 @@ public sealed partial class EditorWindowScene : IWindowScene
             PromptForPaletteGenerationAfterImport = _promptForPaletteGenerationAfterImport,
             PixelColorPickerMode = _pixelColorPickerMode,
             NotificationSoundMode = _notificationSoundMode,
+            BackgroundMusicEnabled = _backgroundMusicEnabled,
+            BackgroundMusicFileName = _backgroundMusicFileName,
+            BackgroundMusicVolumePercent = _backgroundMusicVolumePercent,
+            BackgroundMusicPlaybackMode = _backgroundMusicPlaybackMode,
             PixelAutosaveIntervalSeconds = _pixelAutosaveIntervalSeconds,
             TransformRotationSnapDegrees = _transformRotationSnapDegrees,
             CustomThemes = _customThemes.Select(CloneSavedEditorTheme).ToList()
@@ -1081,6 +1161,7 @@ public sealed partial class EditorWindowScene : IWindowScene
     public void Dispose()
     {
         PixelStudioRecoveryCoordinator.Unregister(TryFlushPixelStudioRecoveryNow);
+        BackgroundMusicPlayer.Stop();
         _renderer?.Dispose();
         GC.SuppressFinalize(this);
     }
@@ -1103,6 +1184,37 @@ public sealed partial class EditorWindowScene : IWindowScene
             _ => NotificationSoundPlayer.CustomWarningSoundLabel
         };
 
+    private string CurrentBackgroundMusicLabel =>
+        _backgroundMusicEnabled
+            ? $"On ({_backgroundMusicVolumePercent}%)"
+            : "Off";
+
+    private string CurrentBackgroundMusicTrackLabel =>
+        BackgroundMusicPlayer.GetTrackLabel(_backgroundMusicFileName);
+
+    private string CurrentBackgroundMusicPlaybackModeLabel =>
+        _backgroundMusicPlaybackMode == BackgroundMusicPlaybackMode.Playlist
+            ? "Playlist"
+            : "Loop Track";
+
+    private void SyncBackgroundMusicTrackFromPlayer()
+    {
+        if (!_backgroundMusicEnabled || _backgroundMusicPlaybackMode != BackgroundMusicPlaybackMode.Playlist)
+        {
+            return;
+        }
+
+        string? currentTrack = BackgroundMusicPlayer.CurrentTrackFileName;
+        if (string.IsNullOrWhiteSpace(currentTrack)
+            || string.Equals(_backgroundMusicFileName, currentTrack, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        _backgroundMusicFileName = currentTrack;
+        _uiState.BackgroundMusicTrackLabel = CurrentBackgroundMusicTrackLabel;
+    }
+
     private string CurrentCrashSoundLabel =>
         _notificationSoundMode switch
         {
@@ -1122,6 +1234,10 @@ public sealed partial class EditorWindowScene : IWindowScene
         _uiState.FontFamily = _preferredFontFamily;
         _uiState.FontSizeLabel = _fontSizePreset.ToString();
         _uiState.NotificationSoundLabel = CurrentNotificationSoundLabel;
+        _uiState.BackgroundMusicLabel = CurrentBackgroundMusicLabel;
+        _uiState.BackgroundMusicTrackLabel = CurrentBackgroundMusicTrackLabel;
+        _uiState.BackgroundMusicPlaybackModeLabel = CurrentBackgroundMusicPlaybackModeLabel;
+        _uiState.BackgroundMusicVolumePercent = _backgroundMusicVolumePercent;
         _uiState.AutosaveLabel = CurrentAutosaveLabel;
         _uiState.TransformRotationSnapLabel = CurrentTransformRotationSnapLabel;
         _uiState.ProjectLibraryPath = _projectLibraryPath;
@@ -1137,6 +1253,7 @@ public sealed partial class EditorWindowScene : IWindowScene
         _uiState.MenuItems = _shell.MenuItems;
         _uiState.Tabs = _tabs.ToList();
         _uiState.RecentProjects = _recentProjects.ToList();
+        _uiState.HomeRecentFiles = BuildHomeRecentPixelDocumentPreviews();
         _uiState.Shortcuts = _shortcuts;
         _uiState.ProjectForm.ProjectNameSelected = _uiState.ProjectForm.ActiveField == EditorTextField.ProjectName && IsTextSelected(EditableTextTarget.ProjectName);
         _uiState.ProjectForm.ProjectLibraryPathSelected = _uiState.ProjectForm.ActiveField == EditorTextField.ProjectLibraryPath && IsTextSelected(EditableTextTarget.ProjectLibraryPath);
@@ -1265,6 +1382,135 @@ public sealed partial class EditorWindowScene : IWindowScene
         NotificationSoundPlayer.SoundMode = _notificationSoundMode;
         SyncUiState($"Alert sounds set to {CurrentNotificationSoundLabel}.");
         _renderer?.InvalidateTextCache();
+    }
+
+    private void ToggleBackgroundMusic()
+    {
+        _backgroundMusicEnabled = !_backgroundMusicEnabled;
+        ApplyBackgroundMusicSettings();
+        SyncUiState(_backgroundMusicEnabled
+            ? $"Background music on: {CurrentBackgroundMusicTrackLabel}."
+            : "Background music off.");
+        _renderer?.InvalidateTextCache();
+    }
+
+    private void CycleBackgroundMusicTrack()
+    {
+        _backgroundMusicFileName = BackgroundMusicPlayer.GetNextTrackFileName(_backgroundMusicFileName);
+        ApplyBackgroundMusicSettings();
+        SyncUiState($"Background music track set to {CurrentBackgroundMusicTrackLabel}.");
+        _renderer?.InvalidateTextCache();
+    }
+
+    private void CycleBackgroundMusicPlaybackMode()
+    {
+        _backgroundMusicPlaybackMode = _backgroundMusicPlaybackMode == BackgroundMusicPlaybackMode.Playlist
+            ? BackgroundMusicPlaybackMode.LoopTrack
+            : BackgroundMusicPlaybackMode.Playlist;
+        ApplyBackgroundMusicSettings();
+        SyncUiState($"Background music mode set to {CurrentBackgroundMusicPlaybackModeLabel}.");
+        _renderer?.InvalidateTextCache();
+    }
+
+    private void ApplyBackgroundMusicSettings()
+    {
+        BackgroundMusicPlayer.Apply(_backgroundMusicEnabled, _backgroundMusicFileName, _backgroundMusicVolumePercent, _backgroundMusicPlaybackMode);
+    }
+
+    private bool TryStartBackgroundMusicVolumeDrag(float mouseX, float mouseY)
+    {
+        if (_layoutSnapshot?.BackgroundMusicVolumeSliderRect is not UiRect sliderRect || !GetExpandedSliderHitRect(sliderRect).Contains(mouseX, mouseY))
+        {
+            return false;
+        }
+
+        _backgroundMusicVolumeDragging = true;
+        _backgroundMusicVolumeChangedDuringDrag = false;
+        SetBackgroundMusicVolumeFromMouse(mouseX, sliderRect, commit: false);
+        return true;
+    }
+
+    private bool HandleBackgroundMusicVolumeDrag(float mouseX)
+    {
+        if (!_backgroundMusicVolumeDragging || _layoutSnapshot?.BackgroundMusicVolumeSliderRect is not UiRect sliderRect)
+        {
+            return false;
+        }
+
+        SetBackgroundMusicVolumeFromMouse(mouseX, sliderRect, commit: false);
+        return true;
+    }
+
+    private bool TryAdjustBackgroundMusicVolumeWithWheel(float mouseX, float mouseY, float wheelDelta)
+    {
+        if (_layoutSnapshot?.BackgroundMusicVolumeSliderRect is not UiRect sliderRect || !GetExpandedSliderHitRect(sliderRect).Contains(mouseX, mouseY))
+        {
+            return false;
+        }
+
+        int step = wheelDelta >= 0f ? 2 : -2;
+        SetBackgroundMusicVolume(Math.Clamp(_backgroundMusicVolumePercent + step, 0, 100), "Adjusted background music volume.", commit: true);
+        return true;
+    }
+
+    private void SetBackgroundMusicVolumeFromMouse(float mouseX, UiRect sliderRect, bool commit)
+    {
+        float t = sliderRect.Width <= 0f
+            ? 0f
+            : Math.Clamp((mouseX - sliderRect.X) / sliderRect.Width, 0f, 1f);
+        SetBackgroundMusicVolume((int)MathF.Round(t * 100f), "Adjusted background music volume.", commit);
+    }
+
+    private void SetBackgroundMusicVolume(int volumePercent, string status, bool commit)
+    {
+        int normalizedVolume = Math.Clamp(volumePercent, 0, 100);
+        int previousVolume = _backgroundMusicVolumePercent;
+        bool wasEnabled = _backgroundMusicEnabled;
+        _backgroundMusicVolumePercent = normalizedVolume;
+        if (normalizedVolume > 0 && !_backgroundMusicEnabled)
+        {
+            _backgroundMusicEnabled = true;
+        }
+
+        if (previousVolume == _backgroundMusicVolumePercent && wasEnabled == _backgroundMusicEnabled)
+        {
+            return;
+        }
+
+        _uiState.BackgroundMusicVolumePercent = _backgroundMusicVolumePercent;
+        _uiState.BackgroundMusicLabel = CurrentBackgroundMusicLabel;
+        if (!wasEnabled && _backgroundMusicEnabled)
+        {
+            ApplyBackgroundMusicSettings();
+        }
+        else
+        {
+            BackgroundMusicPlayer.SetVolume(_backgroundMusicVolumePercent);
+        }
+
+        if (commit)
+        {
+            CommitBackgroundMusicVolume(status);
+        }
+        else
+        {
+            _backgroundMusicVolumeChangedDuringDrag = true;
+        }
+    }
+
+    private void CommitBackgroundMusicVolume(string status)
+    {
+        SyncUiState($"{status} Music volume: {_backgroundMusicVolumePercent}%.");
+        _renderer?.InvalidateTextCache();
+    }
+
+    private static UiRect GetExpandedSliderHitRect(UiRect sliderRect)
+    {
+        return new UiRect(
+            sliderRect.X - 8f,
+            sliderRect.Y - 10f,
+            sliderRect.Width + 16f,
+            sliderRect.Height + 20f);
     }
 
     private void CycleAutosaveInterval()
@@ -1749,6 +1995,15 @@ public sealed partial class EditorWindowScene : IWindowScene
                 break;
             case EditorPreferenceAction.CycleNotificationSoundMode:
                 CycleNotificationSoundMode();
+                break;
+            case EditorPreferenceAction.ToggleBackgroundMusic:
+                ToggleBackgroundMusic();
+                break;
+            case EditorPreferenceAction.CycleBackgroundMusicTrack:
+                CycleBackgroundMusicTrack();
+                break;
+            case EditorPreferenceAction.CycleBackgroundMusicPlaybackMode:
+                CycleBackgroundMusicPlaybackMode();
                 break;
             case EditorPreferenceAction.CycleAutosaveInterval:
                 CycleAutosaveInterval();

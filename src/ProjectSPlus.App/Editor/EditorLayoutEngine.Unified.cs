@@ -233,6 +233,7 @@ public static partial class EditorLayoutEngine
         UiRect? preferenceViewportRect = null;
         UiRect? preferenceScrollTrackRect = null;
         UiRect? preferenceScrollThumbRect = null;
+        UiRect? backgroundMusicVolumeSliderRect = null;
         List<ActionRect<EditorThemeStudioAction>> themeStudioButtons = [];
         List<ActionRect<EditorThemeColorRole>> themeStudioRoleButtons = [];
         UiRect? themeStudioDialogRect = null;
@@ -288,14 +289,14 @@ public static partial class EditorLayoutEngine
                     .Select(card => new ActionRect<EditorHomeAction> { Action = card.Value, Rect = card.Rect })
                     .ToList();
 
-                ScrollRegionLayout homeRecentScroll = CreateScrollRegion(GetPanelBodyRect(homeRecentPanelRect.Value), uiState.RecentProjects.Count, 50, 8, uiState.HomeRecentScrollRow);
+                ScrollRegionLayout homeRecentScroll = CreateScrollRegion(GetPanelBodyRect(homeRecentPanelRect.Value), uiState.HomeRecentFiles.Count, 112, 10, uiState.HomeRecentScrollRow);
                 homeRecentViewportRect = homeRecentScroll.ContentRect;
                 homeRecentScrollTrackRect = homeRecentScroll.TrackRect;
                 homeRecentScrollThumbRect = homeRecentScroll.ThumbRect;
                 for (int visibleIndex = 0; visibleIndex < homeRecentScroll.VisibleRows; visibleIndex++)
                 {
                     int projectIndex = homeRecentScroll.StartRow + visibleIndex;
-                    if (projectIndex >= uiState.RecentProjects.Count)
+                    if (projectIndex >= uiState.HomeRecentFiles.Count)
                     {
                         break;
                     }
@@ -305,9 +306,9 @@ public static partial class EditorLayoutEngine
                         Index = projectIndex,
                         Rect = new UiRect(
                             homeRecentViewportRect.Value.X,
-                            homeRecentViewportRect.Value.Y + (visibleIndex * 58),
+                            homeRecentViewportRect.Value.Y + (visibleIndex * 124),
                             homeRecentViewportRect.Value.Width,
-                            50)
+                            112)
                     });
                 }
 
@@ -438,7 +439,7 @@ public static partial class EditorLayoutEngine
             }
             case EditorPageKind.Preferences:
             {
-                float generalHeight = Math.Clamp(workspaceInnerRect.Height * 0.38f, 258, 324);
+                float generalHeight = Math.Clamp(workspaceInnerRect.Height * 0.44f, 292, 372);
                 preferencesGeneralPanelRect = new UiRect(workspaceInnerRect.X, workspaceInnerRect.Y, workspaceInnerRect.Width, generalHeight);
                 preferencesShortcutPanelRect = new UiRect(
                     workspaceInnerRect.X,
@@ -450,7 +451,7 @@ public static partial class EditorLayoutEngine
                 UiPanel preferenceActionPanel = new()
                 {
                     Id = "Preferences.Actions",
-                    Bounds = new UiRect(generalBodyRect.X, generalBodyRect.Y + 54, generalBodyRect.Width, 220),
+                    Bounds = new UiRect(generalBodyRect.X, generalBodyRect.Y + 54, generalBodyRect.Width, Math.Max(generalBodyRect.Height - 66, 220)),
                     Padding = 0,
                     Spacing = 12
                 };
@@ -463,6 +464,9 @@ public static partial class EditorLayoutEngine
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Font", Label = $"Font: {uiState.FontFamily}", Value = EditorPreferenceAction.CycleFontFamily, MinWidth = 224, MaxWidth = 320, Height = 50, HorizontalPadding = 36, Priority = 2 },
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Picker", Label = $"Picker: {GetColorPickerModeLabel(uiState.PixelStudio.ColorPickerMode)}", Value = EditorPreferenceAction.CycleColorPickerMode, MinWidth = 216, MaxWidth = 284, Height = 50, HorizontalPadding = 30, Priority = 3 },
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Sound", Label = $"Sounds: {uiState.NotificationSoundLabel}", Value = EditorPreferenceAction.CycleNotificationSoundMode, MinWidth = 212, MaxWidth = 280, Height = 50, HorizontalPadding = 30, Priority = 3 },
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Music", Label = $"Music: {uiState.BackgroundMusicLabel}", Value = EditorPreferenceAction.ToggleBackgroundMusic, MinWidth = 208, MaxWidth = 280, Height = 50, HorizontalPadding = 30, Priority = 3 },
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.MusicTrack", Label = $"Track: {uiState.BackgroundMusicTrackLabel}", Value = EditorPreferenceAction.CycleBackgroundMusicTrack, MinWidth = 230, MaxWidth = 330, Height = 50, HorizontalPadding = 30, Priority = 3 },
+                        new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.MusicMode", Label = $"Mode: {uiState.BackgroundMusicPlaybackModeLabel}", Value = EditorPreferenceAction.CycleBackgroundMusicPlaybackMode, MinWidth = 220, MaxWidth = 300, Height = 50, HorizontalPadding = 30, Priority = 3 },
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.Autosave", Label = $"Autosave: {uiState.AutosaveLabel}", Value = EditorPreferenceAction.CycleAutosaveInterval, MinWidth = 218, MaxWidth = 288, Height = 50, HorizontalPadding = 30, Priority = 3 },
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.TransformSnap", Label = $"Rotate Snap: {uiState.TransformRotationSnapLabel}", Value = EditorPreferenceAction.CycleTransformRotationSnap, MinWidth = 236, MaxWidth = 320, Height = 50, HorizontalPadding = 30, Priority = 3 },
                         new UiLayoutItem<EditorPreferenceAction> { Id = "Preferences.ThemeStudio", Label = "Theme Studio", Value = EditorPreferenceAction.OpenThemeStudio, MinWidth = 198, MaxWidth = 250, Height = 50, HorizontalPadding = 30, Priority = 3 }
@@ -471,6 +475,15 @@ public static partial class EditorLayoutEngine
                 preferenceActions = preferencePlacements
                     .Select(action => new ActionRect<EditorPreferenceAction> { Action = action.Value, Rect = action.Rect })
                     .ToList();
+                ActionRect<EditorPreferenceAction>? musicAction = preferenceActions.FirstOrDefault(action => action.Action == EditorPreferenceAction.ToggleBackgroundMusic);
+                if (musicAction is not null)
+                {
+                    backgroundMusicVolumeSliderRect = new UiRect(
+                        musicAction.Rect.X + 18f,
+                        musicAction.Rect.Y + musicAction.Rect.Height - 15f,
+                        Math.Max(musicAction.Rect.Width - 36f, 0f),
+                        8f);
+                }
 
                 if (uiState.ThemeStudio.Visible)
                 {
@@ -653,6 +666,7 @@ public static partial class EditorLayoutEngine
             PreferenceViewportRect = preferenceViewportRect,
             PreferenceScrollTrackRect = preferenceScrollTrackRect,
             PreferenceScrollThumbRect = preferenceScrollThumbRect,
+            BackgroundMusicVolumeSliderRect = backgroundMusicVolumeSliderRect,
             ThemeStudioDialogRect = themeStudioDialogRect,
             ThemeStudioNameFieldRect = themeStudioNameFieldRect,
             ThemeStudioWheelRect = themeStudioWheelRect,

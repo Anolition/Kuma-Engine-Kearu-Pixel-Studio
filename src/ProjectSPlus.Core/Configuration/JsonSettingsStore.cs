@@ -62,7 +62,7 @@ public sealed class JsonSettingsStore
         WindowSettings normalizedWindow = settings.Window.Normalize();
         EditorLayoutSettings normalizedLayout = settings.Editor.Layout.Normalize();
         int normalizedAutosaveIntervalSeconds = EditorAutosaveOptions.Normalize(settings.Editor.PixelAutosaveIntervalSeconds);
-        List<PaletteColorSetting> normalizedWorkingPalette = NormalizePaletteList(settings.Editor.PixelWorkingPalette, 24);
+        List<PaletteColorSetting> normalizedWorkingPalette = NormalizePaletteList(settings.Editor.PixelWorkingPalette, 100);
         int normalizedWorkingPaletteActiveIndex = normalizedWorkingPalette.Count == 0
             ? 0
             : Math.Clamp(settings.Editor.PixelWorkingPaletteActiveIndex, 0, normalizedWorkingPalette.Count - 1);
@@ -131,6 +131,10 @@ public sealed class JsonSettingsStore
                 PromptForPaletteGenerationAfterImport = settings.Editor.PromptForPaletteGenerationAfterImport,
                 PixelColorPickerMode = settings.Editor.PixelColorPickerMode,
                 NotificationSoundMode = settings.Editor.NotificationSoundMode,
+                BackgroundMusicEnabled = settings.Editor.BackgroundMusicEnabled,
+                BackgroundMusicFileName = settings.Editor.BackgroundMusicFileName,
+                BackgroundMusicVolumePercent = Math.Clamp(settings.Editor.BackgroundMusicVolumePercent, 0, 100),
+                BackgroundMusicPlaybackMode = settings.Editor.BackgroundMusicPlaybackMode,
                 PixelAutosaveIntervalSeconds = normalizedAutosaveIntervalSeconds,
                 TransformRotationSnapDegrees = settings.Editor.TransformRotationSnapDegrees,
                 CustomThemes = settings.Editor.CustomThemes

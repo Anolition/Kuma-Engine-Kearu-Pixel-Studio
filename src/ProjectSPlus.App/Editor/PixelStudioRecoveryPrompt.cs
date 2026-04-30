@@ -12,7 +12,6 @@ public enum PixelStudioRecoveryPromptResult
 public static class PixelStudioRecoveryPrompt
 {
     private const uint MessageBoxYesNoCancel = 0x00000003;
-    private const uint MessageBoxQuestionIcon = 0x00000020;
     private const uint MessageBoxTopMost = 0x00040000;
     private const uint MessageBoxSetForeground = 0x00010000;
     private const int MessageBoxResultYes = 6;
@@ -45,7 +44,7 @@ public static class PixelStudioRecoveryPrompt
             IntPtr.Zero,
             summary,
             "Kuma Engine Recovery",
-            MessageBoxYesNoCancel | MessageBoxQuestionIcon | MessageBoxTopMost | MessageBoxSetForeground);
+            MessageBoxYesNoCancel | MessageBoxTopMost | MessageBoxSetForeground);
 
         return result switch
         {

@@ -34,7 +34,15 @@ public sealed class EditorSettings
 
     public PixelStudioColorPickerMode PixelColorPickerMode { get; init; } = PixelStudioColorPickerMode.RgbField;
 
-    public EditorNotificationSoundMode NotificationSoundMode { get; init; } = EditorNotificationSoundMode.Custom;
+    public EditorNotificationSoundMode NotificationSoundMode { get; init; } = EditorNotificationSoundMode.None;
+
+    public bool BackgroundMusicEnabled { get; init; } = true;
+
+    public string BackgroundMusicFileName { get; init; } = "telescope-lilac.mp3";
+
+    public int BackgroundMusicVolumePercent { get; init; } = 16;
+
+    public BackgroundMusicPlaybackMode BackgroundMusicPlaybackMode { get; init; } = BackgroundMusicPlaybackMode.LoopTrack;
 
     public int PixelAutosaveIntervalSeconds { get; init; } = 60;
 

@@ -1,3 +1,4 @@
+using ProjectSPlus.Core.Configuration;
 using ProjectSPlus.Editor.Themes;
 
 namespace ProjectSPlus.App.Editor;
@@ -79,6 +80,12 @@ public sealed class PixelStudioState
     public int ActiveLayerIndex { get; set; }
 
     public required List<ThemeColor> Palette { get; init; }
+
+    public List<SavedPixelPalette>? SavedPalettes { get; set; }
+
+    public string? ActiveSavedPaletteId { get; set; }
+
+    public string? SelectedSavedPaletteId { get; set; }
 
     public required List<PixelStudioAnimationClip> AnimationClips { get; init; }
 

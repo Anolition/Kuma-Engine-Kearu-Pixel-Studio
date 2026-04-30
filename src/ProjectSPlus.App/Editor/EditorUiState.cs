@@ -24,6 +24,14 @@ public sealed class EditorUiState
 
     public string NotificationSoundLabel { get; set; } = string.Empty;
 
+    public string BackgroundMusicLabel { get; set; } = string.Empty;
+
+    public string BackgroundMusicTrackLabel { get; set; } = string.Empty;
+
+    public string BackgroundMusicPlaybackModeLabel { get; set; } = string.Empty;
+
+    public int BackgroundMusicVolumePercent { get; set; } = 16;
+
     public string AutosaveLabel { get; set; } = string.Empty;
 
     public string TransformRotationSnapLabel { get; set; } = string.Empty;
@@ -55,6 +63,8 @@ public sealed class EditorUiState
     public IReadOnlyList<EditorWorkspaceTab> Tabs { get; set; } = [];
 
     public IReadOnlyList<RecentProjectEntry> RecentProjects { get; set; } = [];
+
+    public IReadOnlyList<RecentPixelDocumentPreview> HomeRecentFiles { get; set; } = [];
 
     public IReadOnlyList<EditorShortcutBinding> Shortcuts { get; set; } = [];
 

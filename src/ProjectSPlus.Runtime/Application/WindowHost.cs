@@ -67,6 +67,12 @@ public sealed class WindowHost : IApplicationHost
 
         window.Closing += () =>
         {
+            if (!scene.TryPrepareClose(window))
+            {
+                window.IsClosing = false;
+                return;
+            }
+
             persistSettings(scene.CaptureSettings(settings, window));
             inputContext?.Dispose();
             scene.Dispose();

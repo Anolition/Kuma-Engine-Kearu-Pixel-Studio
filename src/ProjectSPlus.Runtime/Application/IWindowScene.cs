@@ -28,5 +28,7 @@ public interface IWindowScene : IDisposable
 
     void OnMouseScroll(IMouse mouse, ScrollWheel scrollWheel);
 
+    bool TryPrepareClose(IWindow window);
+
     AppSettings CaptureSettings(AppSettings currentSettings, IWindow window);
 }

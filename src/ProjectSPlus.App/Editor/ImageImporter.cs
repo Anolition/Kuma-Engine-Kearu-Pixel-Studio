@@ -31,16 +31,21 @@ public static class ImageImporter
             throw new InvalidOperationException("Only PNG and JPG images are supported right now.");
         }
 
-        using Image<Rgba32> resizedImage = LoadAndResize(filePath, pixelStudio.CanvasWidth, pixelStudio.CanvasHeight);
+        using Image<Rgba32> sourceImage = Image.Load<Rgba32>(filePath);
+        Array.Fill(layer.Pixels, 0);
+
+        int copyWidth = Math.Min(pixelStudio.CanvasWidth, sourceImage.Width);
+        int copyHeight = Math.Min(pixelStudio.CanvasHeight, sourceImage.Height);
+        int importedPixelCount = 0;
         int uniqueSourceColorCount = 0;
         HashSet<ColorKey> seenSourceColors = [];
 
-        for (int y = 0; y < pixelStudio.CanvasHeight; y++)
+        for (int y = 0; y < copyHeight; y++)
         {
-            for (int x = 0; x < pixelStudio.CanvasWidth; x++)
+            for (int x = 0; x < copyWidth; x++)
             {
                 int pixelIndex = (y * pixelStudio.CanvasWidth) + x;
-                Rgba32 sourcePixel = resizedImage[x, y];
+                Rgba32 sourcePixel = sourceImage[x, y];
                 if (sourcePixel.A <= 8)
                 {
                     layer.Pixels[pixelIndex] = 0;
@@ -51,12 +56,13 @@ public static class ImageImporter
                 seenSourceColors.Add(key);
                 uniqueSourceColorCount = seenSourceColors.Count;
                 layer.Pixels[pixelIndex] = PackPixelColor(sourcePixel);
+                importedPixelCount++;
             }
         }
 
         return new ImageImportResult
         {
-            ImportedPixelCount = pixelStudio.CanvasWidth * pixelStudio.CanvasHeight,
+            ImportedPixelCount = importedPixelCount,
             UniqueSourceColorCount = uniqueSourceColorCount,
             PaletteWasModified = false
         };

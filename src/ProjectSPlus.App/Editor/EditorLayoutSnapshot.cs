@@ -76,6 +76,8 @@ public sealed class EditorLayoutSnapshot
 
     public UiRect? PreferenceScrollThumbRect { get; init; }
 
+    public UiRect? BackgroundMusicVolumeSliderRect { get; init; }
+
     public UiRect? ThemeStudioDialogRect { get; init; }
 
     public UiRect? ThemeStudioNameFieldRect { get; init; }

@@ -292,6 +292,25 @@ public sealed class EditorShellRenderer : IDisposable
             DrawUiRect(row.Rect, _theme.TabInactive);
         }
 
+        foreach (IndexedRect row in _layoutSnapshot.RecentProjectRows)
+        {
+            if (row.Index < 0 || row.Index >= _uiState.HomeRecentFiles.Count)
+            {
+                continue;
+            }
+
+            RecentPixelDocumentPreview preview = _uiState.HomeRecentFiles[row.Index];
+            UiRect previewFrameRect = new(row.Rect.X + 12f, row.Rect.Y + 8f, 96f, 96f);
+            DrawRoundedUiRect(previewFrameRect, Blend(_theme.Workspace, _theme.Background, 0.18f), 10f);
+            DrawPixelPreview(
+                $"home-recent-preview-{preview.Path}",
+                new UiRect(previewFrameRect.X + 5f, previewFrameRect.Y + 5f, previewFrameRect.Width - 10f, previewFrameRect.Height - 10f),
+                preview.Pixels,
+                preview.CanvasWidth,
+                preview.CanvasHeight,
+                preview.Revision);
+        }
+
         DrawScrollRegion(_layoutSnapshot.HomeRecentScrollTrackRect, _layoutSnapshot.HomeRecentScrollThumbRect);
     }
 
@@ -1125,6 +1144,7 @@ public sealed class EditorShellRenderer : IDisposable
         {
             DrawRoundedUiRect(action.Rect, ResolvePreferenceActionColor(action.Action), 14f);
         }
+        DrawBackgroundMusicVolumeSlider();
 
         foreach (IndexedRect row in _layoutSnapshot!.PreferenceRows)
         {
@@ -1190,6 +1210,23 @@ public sealed class EditorShellRenderer : IDisposable
         {
             DrawPixelPanel(_layoutSnapshot.ScratchInfoPanelRect.Value, Blend(_theme.TabInactive, _theme.Workspace, 0.12f));
         }
+    }
+
+    private void DrawBackgroundMusicVolumeSlider()
+    {
+        if (_layoutSnapshot?.BackgroundMusicVolumeSliderRect is not UiRect sliderRect || sliderRect.Width <= 0f || sliderRect.Height <= 0f)
+        {
+            return;
+        }
+
+        float trackY = sliderRect.Y + MathF.Floor(sliderRect.Height * 0.5f) - 1f;
+        UiRect trackRect = new(sliderRect.X, trackY, sliderRect.Width, 3f);
+        float fillWidth = sliderRect.Width * Math.Clamp(_uiState.BackgroundMusicVolumePercent / 100f, 0f, 1f);
+        DrawRoundedUiRect(trackRect, Blend(_theme.Workspace, _theme.TabInactive, 0.45f), 2f);
+        DrawRoundedUiRect(new UiRect(sliderRect.X, trackY, fillWidth, 3f), Blend(_theme.Accent, _theme.TabActive, 0.28f), 2f);
+
+        float knobX = sliderRect.X + fillWidth;
+        DrawRoundedUiRect(new UiRect(knobX - 5f, sliderRect.Y - 3f, 10f, 14f), Blend(_theme.Accent, _theme.TabActive, 0.42f), 5f);
     }
 
     private void DrawMenuLogo()
@@ -1431,32 +1468,33 @@ public sealed class EditorShellRenderer : IDisposable
 
         if (_layoutSnapshot.HomeRecentPanelRect is not null)
         {
-            DrawTextInRect("Recent Projects", titleFont, bodyText, GetPixelPanelHeaderRect(_layoutSnapshot.HomeRecentPanelRect.Value), 12, 7);
+            DrawTextInRect($"Recent {EditorBranding.PixelToolName} Files", titleFont, bodyText, GetPixelPanelHeaderRect(_layoutSnapshot.HomeRecentPanelRect.Value), 12, 7);
         }
 
-        if (_uiState.RecentProjects.Count == 0)
+        if (_uiState.HomeRecentFiles.Count == 0)
         {
             if (_layoutSnapshot.HomeRecentPanelRect is not null)
             {
                 UiRect recentBody = GetPixelPanelBodyRect(_layoutSnapshot.HomeRecentPanelRect.Value);
-                DrawTextInRect("No projects yet. Use New Project Slot to create your first folder.", bodyFont, bodyText, new UiRect(recentBody.X, recentBody.Y + 8, recentBody.Width, 22), 0, 0);
+                DrawTextInRect($"No recent {EditorBranding.PixelToolName} files yet. Save or open artwork and it will appear here.", bodyFont, bodyText, new UiRect(recentBody.X, recentBody.Y + 8, recentBody.Width, 22), 0, 0);
             }
 
             return;
         }
 
-        for (int index = 0; index < _layoutSnapshot.RecentProjectRows.Count && index < _uiState.RecentProjects.Count; index++)
+        for (int index = 0; index < _layoutSnapshot.RecentProjectRows.Count && index < _uiState.HomeRecentFiles.Count; index++)
         {
             IndexedRect row = _layoutSnapshot.RecentProjectRows[index];
-            if (row.Index < 0 || row.Index >= _uiState.RecentProjects.Count)
+            if (row.Index < 0 || row.Index >= _uiState.HomeRecentFiles.Count)
             {
                 continue;
             }
 
-            RecentProjectEntry project = _uiState.RecentProjects[row.Index];
+            RecentPixelDocumentPreview project = _uiState.HomeRecentFiles[row.Index];
             UiRect rect = _layoutSnapshot.RecentProjectRows[index].Rect;
-            DrawTextInRect(project.Name, bodyFont, bodyText, rect, 12, 10);
-            DrawTextInRect(TrimPath(project.Path, 54), statusFont, bodyText, rect, 12, 24);
+            DrawTextInRect(project.Name, bodyFont, bodyText, rect, 124, 16);
+            DrawTextInRect($"{project.CanvasWidth}x{project.CanvasHeight} - {TrimPath(project.DisplayPath, 54)}", statusFont, bodyText, rect, 124, 42);
+            DrawTextInRect(project.IsRecoveryBackup ? "Click to inspect recovered artwork" : "Click to open in Kearu", statusFont, bodyText, rect, 124, 68);
         }
     }
 
@@ -1576,6 +1614,9 @@ public sealed class EditorShellRenderer : IDisposable
         ActionRect<EditorPreferenceAction> fontButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleFontFamily);
         ActionRect<EditorPreferenceAction> pickerButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleColorPickerMode);
         ActionRect<EditorPreferenceAction> soundButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleNotificationSoundMode);
+        ActionRect<EditorPreferenceAction> musicButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.ToggleBackgroundMusic);
+        ActionRect<EditorPreferenceAction> musicTrackButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleBackgroundMusicTrack);
+        ActionRect<EditorPreferenceAction> musicModeButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleBackgroundMusicPlaybackMode);
         ActionRect<EditorPreferenceAction> autosaveButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleAutosaveInterval);
         ActionRect<EditorPreferenceAction> rotateSnapButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.CycleTransformRotationSnap);
         ActionRect<EditorPreferenceAction> studioButton = _layoutSnapshot.PreferenceActions.First(action => action.Action == EditorPreferenceAction.OpenThemeStudio);
@@ -1584,6 +1625,15 @@ public sealed class EditorShellRenderer : IDisposable
         DrawCenteredTextInRect($"Font: {TrimPath(_uiState.FontFamily, 16)}", bodyFont, bodyText, fontButton.Rect, 12, 8);
         DrawCenteredTextInRect($"Picker: {GetColorPickerModeLabel(_uiState.PixelStudio.ColorPickerMode)}", bodyFont, bodyText, pickerButton.Rect, 12, 8);
         DrawCenteredTextInRect($"Sounds: {_uiState.NotificationSoundLabel}", bodyFont, bodyText, soundButton.Rect, 12, 8);
+        DrawCenteredTextInRect(
+            $"Music: {_uiState.BackgroundMusicLabel}",
+            bodyFont,
+            bodyText,
+            new UiRect(musicButton.Rect.X, musicButton.Rect.Y, musicButton.Rect.Width, Math.Max(musicButton.Rect.Height - 14f, 0f)),
+            12,
+            8);
+        DrawCenteredTextInRect($"Track: {TrimPath(_uiState.BackgroundMusicTrackLabel, 18)}", bodyFont, bodyText, musicTrackButton.Rect, 12, 8);
+        DrawCenteredTextInRect($"Mode: {_uiState.BackgroundMusicPlaybackModeLabel}", bodyFont, bodyText, musicModeButton.Rect, 12, 8);
         DrawCenteredTextInRect($"Autosave: {_uiState.AutosaveLabel}", bodyFont, bodyText, autosaveButton.Rect, 12, 8);
         DrawCenteredTextInRect($"Rotate Snap: {_uiState.TransformRotationSnapLabel}", bodyFont, bodyText, rotateSnapButton.Rect, 12, 8);
         DrawCenteredTextInRect("Theme Studio", bodyFont, bodyText, studioButton.Rect, 12, 8);
@@ -1597,6 +1647,9 @@ public sealed class EditorShellRenderer : IDisposable
                 fontButton.Rect.Y + fontButton.Rect.Height,
                 pickerButton.Rect.Y + pickerButton.Rect.Height,
                 soundButton.Rect.Y + soundButton.Rect.Height,
+                musicButton.Rect.Y + musicButton.Rect.Height,
+                musicTrackButton.Rect.Y + musicTrackButton.Rect.Height,
+                musicModeButton.Rect.Y + musicModeButton.Rect.Height,
                 autosaveButton.Rect.Y + autosaveButton.Rect.Height,
                 rotateSnapButton.Rect.Y + rotateSnapButton.Rect.Height,
                 studioButton.Rect.Y + studioButton.Rect.Height
@@ -2020,7 +2073,7 @@ public sealed class EditorShellRenderer : IDisposable
                 $"Opacity {MathF.Round(pixelStudio.ActiveLayerOpacity * 100f)}%",
                 statusFont,
                 statusText,
-                new UiRect(sliderRect.X, sliderRect.Y - 18f, sliderRect.Width, 16f),
+                new UiRect(sliderRect.X, sliderRect.Y - 22f, sliderRect.Width, 18f),
                 0,
                 0);
             DrawRoundedUiRect(sliderRect, Blend(_theme.TabInactive, _theme.MenuBar, 0.16f), 5f);
@@ -2034,9 +2087,9 @@ public sealed class EditorShellRenderer : IDisposable
             liveKnobX = Math.Clamp(liveKnobX, sliderRect.X, sliderRect.X + Math.Max(sliderRect.Width - 12f, 0f));
             UiRect liveKnobRect = new(
                 liveKnobX,
-                sliderRect.Y - 3f,
+                sliderRect.Y - 4f,
                 12f,
-                Math.Max(sliderRect.Height + 6f, 0f));
+                Math.Max(sliderRect.Height + 8f, 0f));
             if (liveFillRect.Width > 0f && liveFillRect.Height > 0f)
             {
                 DrawRoundedUiRect(liveFillRect, Blend(_theme.Accent, _theme.TabActive, 0.54f), 4f);
@@ -3593,6 +3646,7 @@ public sealed class EditorShellRenderer : IDisposable
         {
             PixelStudioAction.NewBlankDocument => "New Sprite",
             PixelStudioAction.SaveProjectDocument => "Save",
+            PixelStudioAction.SaveProjectDocumentAs => "Save As",
             PixelStudioAction.LoadProjectDocument => "Open",
             PixelStudioAction.LoadDemoDocument => "Demo",
             PixelStudioAction.ImportImage => "Import",
@@ -3895,6 +3949,11 @@ public sealed class EditorShellRenderer : IDisposable
             EditorPreferenceAction.CycleColorPickerMode => Blend(baseColor, _theme.TabActive, 0.14f),
             EditorPreferenceAction.CycleNotificationSoundMode when string.Equals(_uiState.NotificationSoundLabel, "Kuma", StringComparison.Ordinal) => activeColor,
             EditorPreferenceAction.CycleNotificationSoundMode => Blend(baseColor, _theme.MenuBar, 0.14f),
+            EditorPreferenceAction.ToggleBackgroundMusic when !string.Equals(_uiState.BackgroundMusicLabel, "Off", StringComparison.OrdinalIgnoreCase) => activeColor,
+            EditorPreferenceAction.ToggleBackgroundMusic => Blend(baseColor, _theme.MenuBar, 0.20f),
+            EditorPreferenceAction.CycleBackgroundMusicTrack => Blend(baseColor, _theme.Accent, 0.16f),
+            EditorPreferenceAction.CycleBackgroundMusicPlaybackMode when string.Equals(_uiState.BackgroundMusicPlaybackModeLabel, "Playlist", StringComparison.OrdinalIgnoreCase) => Blend(activeColor, _theme.Accent, 0.16f),
+            EditorPreferenceAction.CycleBackgroundMusicPlaybackMode => Blend(baseColor, _theme.MenuBar, 0.16f),
             EditorPreferenceAction.CycleAutosaveInterval when !string.Equals(_uiState.AutosaveLabel, "Off", StringComparison.OrdinalIgnoreCase) => Blend(activeColor, _theme.MenuBar, 0.08f),
             EditorPreferenceAction.CycleAutosaveInterval => Blend(baseColor, _theme.MenuBar, 0.20f),
             EditorPreferenceAction.OpenThemeStudio when _uiState.ThemeStudio.Visible => activeColor,

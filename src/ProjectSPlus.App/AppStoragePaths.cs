@@ -88,6 +88,10 @@ internal static class AppStoragePaths
                 PromptForPaletteGenerationAfterImport = settings.Editor.PromptForPaletteGenerationAfterImport,
                 PixelColorPickerMode = settings.Editor.PixelColorPickerMode,
                 NotificationSoundMode = settings.Editor.NotificationSoundMode,
+                BackgroundMusicEnabled = settings.Editor.BackgroundMusicEnabled,
+                BackgroundMusicFileName = settings.Editor.BackgroundMusicFileName,
+                BackgroundMusicVolumePercent = settings.Editor.BackgroundMusicVolumePercent,
+                BackgroundMusicPlaybackMode = settings.Editor.BackgroundMusicPlaybackMode,
                 PixelAutosaveIntervalSeconds = settings.Editor.PixelAutosaveIntervalSeconds,
                 TransformRotationSnapDegrees = settings.Editor.TransformRotationSnapDegrees,
                 CustomThemes = settings.Editor.CustomThemes

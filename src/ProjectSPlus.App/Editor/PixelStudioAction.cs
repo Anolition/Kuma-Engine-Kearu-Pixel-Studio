@@ -4,6 +4,7 @@ public enum PixelStudioAction
 {
     NewBlankDocument,
     SaveProjectDocument,
+    SaveProjectDocumentAs,
     LoadProjectDocument,
     LoadDemoDocument,
     ImportImage,
