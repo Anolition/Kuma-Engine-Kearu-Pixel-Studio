@@ -81,6 +81,7 @@ Tagged milestone versions are published in git and on GitHub:
 - `kuma-engine-0.0.30`
 - `kuma-engine-0.0.35`
 - `kuma-engine-0.0.40`
+- `kuma-engine-0.0.41`
 
 ## Roadmap Direction
 

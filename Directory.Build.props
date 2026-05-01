@@ -10,10 +10,10 @@
     <Description>Kuma Engine with Kearu Pixel Studio, a custom C# pixel art and animation editor.</Description>
     <RepositoryUrl>https://github.com/Anolition/Kuma-Engine-Kearu-Pixel-Studio</RepositoryUrl>
     <RepositoryType>git</RepositoryType>
-    <VersionPrefix Condition="'$(VersionPrefix)' == ''">0.0.40</VersionPrefix>
+    <VersionPrefix Condition="'$(VersionPrefix)' == ''">0.0.41</VersionPrefix>
     <Version Condition="'$(Version)' == ''">$(VersionPrefix)</Version>
-    <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">0.0.40.0</AssemblyVersion>
-    <FileVersion Condition="'$(FileVersion)' == ''">0.0.40.0</FileVersion>
+    <AssemblyVersion Condition="'$(AssemblyVersion)' == ''">0.0.41.0</AssemblyVersion>
+    <FileVersion Condition="'$(FileVersion)' == ''">0.0.41.0</FileVersion>
     <InformationalVersion Condition="'$(InformationalVersion)' == ''">$(Version)</InformationalVersion>
   </PropertyGroup>
 </Project>
